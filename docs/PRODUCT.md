@@ -36,13 +36,14 @@ Why it travels globally: speech-to-text works in 90+ languages, there's nothing 
 | Stories | 15 | Unlimited |
 | Ask questions | ✓ | ✓ |
 | Download everything | ✓ | ✓ |
-| Hear stories in *their own* voice | — | ✓ |
+| Hear their real voice (the actual recording) | ✓ | ✓ |
+| Recording length | 10 min | 30 min |
 | Printable keepsake book | — | ✓ |
 
 - Checkout: a Dodo Payments static link (live) carries the family ID, and a signed `payment.succeeded` webhook unlocks the family. No subscription, by design: grief and nostalgia don't fit a monthly plan.
 - Unit cost per family: a few cents of open-model inference per story or question, plus ElevenLabs voice for Lifetime families. $19 covers years of normal use.
 - Abuse guard: an AI budget per family per hour (60 free / 300 Lifetime).
-- **Credit guard:** every paid partner call is logged against a monthly budget. The last 10% is reserved for Lifetime families; free families fall back to the device voice, the browser transcript, or the backup model, so the app never stops working and never runs a provider dry. The natural read-aloud voice and voice cloning are Lifetime benefits, so paid revenue funds the expensive credits. Pulse shows what's left and warns under 20%.
+- **Credit guard:** every paid partner call is logged against a monthly budget. The last 10% is reserved for Lifetime families; free families fall back to the device voice, the browser transcript, or the backup model, so the app never stops working and never runs a provider dry. Memoria never generates a voice: Listen plays the real recording, and answers can play the exact moment something was said. Pulse shows what's left and warns under 20%.
 
 ## What's built today (v1, launch-ready)
 

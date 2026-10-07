@@ -4,7 +4,7 @@
  * Every paid call is written to credit_ledger. Before a call, `allow()` checks the
  * month's usage against a budget (env-configurable, with a safety reserve) and the
  * live Backboard balance. Lifetime families are served first; free families fall
- * back to the device voice, the browser transcript or the backup model.
+ * back to the browser transcript or the backup model, and keep the text if storage is nearly full.
  */
 const db = require('./db');
 const { configured } = require('./env');
@@ -15,10 +15,9 @@ const num = (name, fallback) => {
 };
 
 const BUDGET = {
-  tts_chars: num('ELEVENLABS_MONTHLY_CHARS', 100_000),   // ElevenLabs Creator: ~100k credits / month
   stt_minutes: num('SCRIBE_MONTHLY_MINUTES', 300),
-  voice_slots: num('ELEVENLABS_VOICE_SLOTS', 25),
-  tinker_calls: num('TINKER_MONTHLY_CALLS', 400)
+  tinker_calls: num('TINKER_MONTHLY_CALLS', 400),
+  storage_mb: num('NEON_STORAGE_MB', 1024)               // Neon branch size limit; recordings live here
 };
 const RESERVE = 0.1; // keep 10% of every monthly budget back for paying families
 const BACKBOARD_FREE_FLOOR = num('BACKBOARD_FREE_FLOOR_USD', 1.5);   // below this, free families use the backup model
@@ -43,8 +42,8 @@ async function monthUsage() {
   const rows = await db.q(`SELECT kind, COALESCE(SUM(units), 0)::float AS units FROM credit_ledger
                            WHERE created_at >= date_trunc('month', now()) GROUP BY kind`);
   const used = Object.fromEntries(rows.map(r => [r.kind, r.units]));
-  const voices = await db.one(`SELECT COUNT(*)::int AS n FROM persons WHERE voice_cloned`);
-  used.voice_slots = voices?.n || 0;
+  const size = await db.one(`SELECT pg_database_size(current_database())::float / 1048576 AS mb`);
+  used.storage_mb = size?.mb || 0;
   return used;
 }
 
@@ -73,9 +72,8 @@ async function snapshot() {
   const used = await monthUsage();
   await Promise.all([
     refreshBackboard(),
-    db.setCredit('elevenlabs_tts', 'ElevenLabs voice (characters this month)', BUDGET.tts_chars - (used.tts_chars || 0), 'chars_left', BUDGET.tts_chars),
     db.setCredit('elevenlabs_stt', 'ElevenLabs transcription (minutes this month)', BUDGET.stt_minutes - (used.stt_minutes || 0), 'minutes_left', BUDGET.stt_minutes),
-    db.setCredit('elevenlabs_voices', 'ElevenLabs voice slots', BUDGET.voice_slots - (used.voice_slots || 0), 'slots_left', BUDGET.voice_slots),
+    db.setCredit('neon_storage', 'Recording storage (database)', Math.round(BUDGET.storage_mb - (used.storage_mb || 0)), 'mb_left', BUDGET.storage_mb),
     db.setCredit('tinker', 'Tinker backup model (calls this month)', BUDGET.tinker_calls - (used.tinker_calls || 0), 'calls_left', BUDGET.tinker_calls)
   ]);
 }

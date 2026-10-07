@@ -110,7 +110,7 @@
         <p class="eyebrow">How it works</p>
         <ol class="steps">
           <li class="reveal"><span class="step-n">1</span><h3>Sit with them and press record</h3><p>Pick a question if you need one: “What was your first job?” Then just listen. Talk as long as you like, in any language.</p></li>
-          <li class="reveal"><span class="step-n">2</span><h3>Memoria keeps the words</h3><p>Their voice becomes text, gets a title and a year, and goes into their album. The recording itself is deleted.</p></li>
+          <li class="reveal"><span class="step-n">2</span><h3>Memoria keeps the words</h3><p>Their words are written out word for word, given a title and a year, and filed in their album. The recording is kept privately, so you can always hear them say it.</p></li>
           <li class="reveal"><span class="step-n">3</span><h3>Ask about them, any time</h3><p>“How did Nani make the dal?” You’ll get the answer with the exact words she said, and which story they came from.</p></li>
         </ol>
       </section>
@@ -119,12 +119,12 @@
         <div class="price-card reveal">
           <p class="eyebrow">Free</p>
           <p class="price">$0</p>
-          <ul><li>One person’s stories</li><li>Up to 15 memories</li><li>Ask questions any time</li><li>Download everything</li></ul>
+          <ul><li>One person’s stories</li><li>Up to 15 memories</li><li>Hear their real voice, any time</li><li>Recordings up to 10 minutes</li></ul>
         </div>
         <div class="price-card featured reveal">
           <p class="eyebrow">Lifetime</p>
           <p class="price">$19 <small>once, never again</small></p>
-          <ul><li>Everyone in the family</li><li>Unlimited memories</li><li>Hear stories in their own voice</li><li>A printable keepsake book</li></ul>
+          <ul><li>Everyone in the family</li><li>Unlimited memories</li><li>Recordings up to 30 minutes</li><li>A printable keepsake book</li></ul>
           <button class="pill pill-accent" data-start>Start free, upgrade later</button>
         </div>
       </section>
@@ -260,17 +260,17 @@
       <div class="wrap narrow ask-wrap">
         <p class="eyebrow">Ask</p>
         <h2 class="heading">What would you like to know about <span class="pname">them</span>?</h2>
-        <p class="muted">Answers only come from stories <span class="pname">they</span> recorded. Under each answer you’ll see their exact words. If they never talked about it, Memoria will say so.</p>
+        <p class="muted">Answers only come from stories <span class="pname">they</span> recorded. Under each answer you’ll see their exact words, and you can hear them say it. If they never talked about it, Memoria will say so.</p>
 
         <div class="chat" id="chat" aria-live="polite"></div>
         <div class="suggestions" id="suggestions"></div>
 
         <form class="composer" id="chatForm">
           <input id="chatInput" placeholder="How did she make the dal?" autocomplete="off" enterkeyhint="send" maxlength="400">
-          <label class="speak-toggle" title="Read answers out loud">
+          <label class="speak-toggle" title="Play their voice with each answer">
             <input type="checkbox" id="speakToggle" checked>
             <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M16.5 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            <span class="sr-only">Read answers out loud</span>
+            <span class="sr-only">Play their voice with each answer</span>
           </label>
           <button class="send" type="submit" aria-label="Ask">
             <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -292,25 +292,9 @@
       <div class="wrap keep-grid">
         <article class="panel reveal">
           <p class="eyebrow">Their voice</p>
-          <h3 class="heading-sm">Hear the stories in <span class="pname">their</span> voice.</h3>
-          <p>Record about a minute of them talking, or add an old voice note. From then on, every story can be read back in the voice you remember. Only with their permission.</p>
+          <h3 class="heading-sm">Hear <span class="pname">them</span>, not a robot.</h3>
+          <p>Every recorded story keeps their real voice, exactly as they said it. Tap Listen on any story, or ask a question and hear the moment they said the answer. Memoria never makes up a voice.</p>
           <div class="voice-status" id="voiceStatus"></div>
-          <div class="lock-note" id="voiceLock" hidden>Part of Lifetime. <button class="text-link" data-upgrade>Unlock for $19</button></div>
-          <div id="cloneArea">
-            <div class="row-actions">
-              <button class="pill pill-accent" id="sampleRecBtn">Record their voice</button>
-              <label class="pill pill-line file-pill">Add a voice note
-                <input type="file" id="sampleFiles" accept="audio/*" multiple hidden>
-              </label>
-            </div>
-            <ul class="sample-list" id="sampleList"></ul>
-            <label class="consent"><input type="checkbox" id="consentBox"> They said yes to having their voice used for the family.</label>
-            <button class="pill pill-accent" id="cloneBtn" disabled>Create their voice</button>
-          </div>
-          <details class="reading-voices">
-            <summary>Until then, choose a reading voice</summary>
-            <div class="voice-options" id="presetVoicesGrid"></div>
-          </details>
         </article>
 
         <article class="panel reveal">
@@ -354,7 +338,7 @@
         </div>
       </div>
       <div class="footer-notes">
-        <p><b>Private by default.</b> Each family has its own space. Recordings are deleted once they become text. Nothing is sold or shown to anyone else.</p>
+        <p><b>Private by default.</b> Each family has its own space. Recordings stay private to your family and play only through short-lived private links. Nothing is sold or shown to anyone else.</p>
         <p class="muted">Built with open AI models for DEV Hacktoberfest 2026. © 2026 Memoria.</p>
       </div>
     </div>
@@ -375,7 +359,7 @@
       <h3 class="heading" id="mTitle"></h3>
       <p class="m-content" id="mContent"></p>
       <div class="tags" id="mTags"></div>
-      <audio id="mAudio" controls hidden></audio>
+      <p class="fineprint" id="mTyped" hidden>This story was typed, so there’s no recording of it.</p>
       <div class="row-actions">
         <button class="pill pill-line danger" id="mDelete">Delete</button>
         <button class="pill pill-accent" id="mPlay">Listen</button>
@@ -429,7 +413,7 @@
       <ul class="check-list">
         <li>Everyone in the family, each with their own album</li>
         <li>Unlimited stories, forever</li>
-        <li>Hear stories read in their own voice</li>
+        <li>Recordings up to 30 minutes each</li>
         <li>A printable keepsake book</li>
       </ul>
       <button class="pill pill-accent big" id="buyBtn">Unlock Lifetime for $19</button>

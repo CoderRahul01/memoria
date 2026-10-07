@@ -1,7 +1,7 @@
 {
   "name": "memoria",
   "version": "1.0.0",
-  "description": "Voice Memory Companion for Loved Ones — Hacktoberfest 2026",
+  "description": "Voice Memory Companion for Loved Ones \u2014 Hacktoberfest 2026",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -21,5 +21,11 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CoderRahul01/memoria.git"
+  },
+  "author": "Rahul Pandey (https://x.com/rahulpandey187)"
 }

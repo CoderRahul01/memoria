@@ -284,7 +284,10 @@ body:not(.mode-landing) .landing-only { display: none !important; }
 .quote::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 3px; background: var(--accent); transform-origin: top; animation: grow .7s var(--out) both .2s; }
 @keyframes grow { from { transform: scaleY(0); } }
 .quote blockquote { margin: 0 0 8px; font: italic 400 17px/1.5 var(--serif); color: var(--ink); }
-.quote button { background: none; border: 0; padding: 0; font-size: 13px; color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.quote-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.quote .hear { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--r-chip); padding: 7px 14px; font: 600 13px var(--sans); text-decoration: none; }
+.quote .hear.playing { background: var(--ink); }
+.quote button.src { background: none; border: 0; padding: 0; font-size: 13px; color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
 .quote-label { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin: 18px 0 0; }
 .not-yet { margin-top: 14px; padding: 14px 16px; background: var(--accent-soft); border-radius: 10px; font-size: 15px; }
 .msg-actions { display: flex; gap: 14px; margin-top: 14px; }
@@ -409,3 +412,5 @@ body:not(.mode-landing) .landing-only { display: none !important; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .rise, .reveal, .mcard, .msg, .t-dot { opacity: 1 !important; transform: none !important; }
 }
+
+#mPlay.playing { background: var(--ink); }

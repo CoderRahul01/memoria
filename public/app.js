@@ -10,8 +10,6 @@ const state = {
   memories: [],
   filter: 'all',
   health: null,
-  voices: null,
-  samples: [],
   current: null,
   freshId: null,
   view: 'home'
@@ -175,9 +173,6 @@ function renderPlan() {
     ? `<span><span class="plan-badge life">Lifetime</span></span><span>Everything unlocked. Thank you.</span>`
     : `<span><span class="plan-badge">Free</span> ${f.memory_count} of ${f.limits.memories} stories</span>
        <button class="pill pill-accent" data-upgrade>Lifetime · ${esc(f.price)}</button>`;
-  $('#voiceLock').hidden = life;
-  $('#cloneArea').hidden = !life;
-  $('.reading-voices').hidden = !life;
   renderVoiceStatus();
 }
 
@@ -212,7 +207,6 @@ async function setPerson(p, reload = true) {
   $('#chat').innerHTML = '';
   renderPrompts();
   renderVoiceStatus();
-  renderVoiceOptions();
   if (reload) await loadMemories();
   if (!$('#view-story').hidden) loadStory();
   heartbeat();
@@ -222,7 +216,7 @@ function openPersonSheet() {
   $('#personList').innerHTML = state.persons.map((p, i) => `
     <li><button data-i="${i}" class="${p.name === state.person?.name ? 'current' : ''}">
       <span class="avatar">${esc(initial(p.name))}</span>
-      <span><b>${esc(p.name)}</b><small>${esc(p.relationship === 'myself' ? 'your own stories' : p.relationship || '')}${p.relationship ? ' · ' : ''}${p.memory_count || 0} stories${p.voice_id ? ' · voice ready' : ''}</small></span>
+      <span><b>${esc(p.name)}</b><small>${esc(p.relationship === 'myself' ? 'your own stories' : p.relationship || '')}${p.relationship ? ' · ' : ''}${p.memory_count || 0} stories</small></span>
     </button></li>`).join('');
   $('#personSheet').hidden = false;
 }
@@ -352,6 +346,34 @@ function formatDate(s) {
   return isNaN(d) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// ── Their real voice ───────────────────────────────────────────
+const player = { audio: new Audio(), stopAt: null, btn: null };
+player.audio.preload = 'auto';
+player.audio.addEventListener('timeupdate', () => {
+  if (player.stopAt != null && !player.audio.seeking && player.audio.currentTime >= player.stopAt) stopVoice();
+});
+player.audio.addEventListener('ended', stopVoice);
+function stopVoice() {
+  player.audio.pause();
+  player.stopAt = null;
+  if (player.btn) { player.btn.classList.remove('playing'); player.btn.textContent = player.btn.dataset.label; player.btn = null; }
+}
+async function playVoice(url, start = 0, end = null, btn = null) {
+  if (player.btn === btn && btn && !player.audio.paused) return stopVoice();
+  stopVoice();
+  if (!player.audio.src.endsWith(url)) player.audio.src = url;
+  await new Promise(r => player.audio.readyState >= 1 ? r() : player.audio.addEventListener('loadedmetadata', r, { once: true }));
+  if (Math.abs(player.audio.currentTime - start) > 0.05) {
+    const seeked = new Promise(r => player.audio.addEventListener('seeked', r, { once: true }));
+    player.audio.currentTime = start;
+    await seeked; // don't let a stale position end the clip before it starts
+  }
+  player.stopAt = end;
+  if (btn) { btn.dataset.label ||= btn.textContent; btn.textContent = 'Stop'; btn.classList.add('playing'); player.btn = btn; }
+  await player.audio.play().catch(() => { stopVoice(); toast('Tap again to play.'); });
+}
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
 // ── Memory sheet ───────────────────────────────────────────────
 function openMemory(m) {
   if (!m) return;
@@ -360,25 +382,23 @@ function openMemory(m) {
   $('#mTitle').textContent = m.title;
   $('#mTags').innerHTML = (m.tags || []).map(t => `<span>${esc(t)}</span>`).join('');
   $('#mContent').textContent = m.content;
-  const audio = $('#mAudio');
-  audio.pause(); audio.hidden = true; audio.removeAttribute('src');
+  stopVoice();
+  const btn = $('#mPlay');
+  btn.hidden = !m.has_voice;
+  btn.dataset.label = m.voice_seconds ? `Listen to ${isSelf() ? 'yourself' : m.person_name || 'them'} · ${mmss(m.voice_seconds)}` : 'Listen';
+  btn.textContent = btn.dataset.label;
+  $('#mTyped').hidden = !!m.has_voice;
   $('#mDelete').textContent = 'Delete';
   $('#memorySheet').hidden = false;
 }
 
 $('#mPlay').addEventListener('click', async () => {
   const m = state.current, btn = $('#mPlay');
-  if (speechSynthesis.speaking) { speechSynthesis.cancel(); btn.textContent = 'Listen'; return; }
-  busy(btn, true);
+  if (player.btn === btn) return stopVoice();
   try {
-    const { tts_url } = await api('/api/speak', { method: 'POST', body: { memory_id: m.id } });
-    if (tts_url) {
-      const audio = $('#mAudio');
-      audio.src = tts_url; audio.hidden = false;
-      await audio.play().catch(() => {});
-    } else browserSpeak(m.content, btn);
-  } catch { browserSpeak(m.content, btn); }
-  finally { busy(btn, false); }
+    const { url } = await api(`/api/memories/${m.id}/voice`);
+    await playVoice(url, 0, null, btn);
+  } catch (err) { fail(err); }
 });
 
 function browserSpeak(text, btn) {
@@ -412,7 +432,7 @@ function closeSheets() {
     s.classList.add('closing');
     setTimeout(() => { s.hidden = true; s.classList.remove('closing'); }, 220);
   });
-  $('#mAudio').pause();
+  stopVoice();
   speechSynthesis.cancel?.();
 }
 $$('.sheet-backdrop').forEach(bd => bd.addEventListener('click', e => {
@@ -469,7 +489,7 @@ async function startRecording() {
   }
   speechSynthesis.cancel?.();
   const mime = pickMime();
-  rec.media = new MediaRecorder(rec.stream, mime ? { mimeType: mime } : undefined);
+  rec.media = new MediaRecorder(rec.stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 });
   rec.chunks = []; rec.blob = null; rec.edited = false;
   rec.finalText = $('#transcript').value.trim() ? $('#transcript').value.trim() + ' ' : '';
   rec.media.ondataavailable = e => e.data.size && rec.chunks.push(e.data);
@@ -523,7 +543,7 @@ function stopRecording() {
   $('#recBtn').setAttribute('aria-label', 'Record more');
   $('#recBtn').setAttribute('aria-pressed', 'false');
   if (!$('#transcript').value.trim()) {
-    $('#transcript').placeholder = state.health?.voice
+    $('#transcript').placeholder = state.health?.transcription
       ? 'The words will be written out when you keep the story.'
       : 'This browser couldn’t write the words live. Please type what was said.';
   }
@@ -570,7 +590,7 @@ $('#saveBtn').addEventListener('click', async () => {
   if (rec.media?.state === 'recording') { stopRecording(); await new Promise(r => setTimeout(r, 400)); }
   const text = $('#transcript').value.trim();
   const btn = $('#saveBtn');
-  const useAudio = rec.blob && state.health?.voice && !rec.edited;
+  const useAudio = !!rec.blob; // the real recording is always kept
   if (!text && !useAudio) return toast('Record or type a story first.', 'error');
 
   busy(btn, true);
@@ -584,6 +604,7 @@ $('#saveBtn').addEventListener('click', async () => {
       const form = new FormData();
       form.append('audio', rec.blob, `memory.${rec.blob.type.includes('mp4') ? 'm4a' : 'webm'}`);
       form.append('transcription', text);
+      form.append('edited', String(rec.edited));
       form.append('person_name', state.person.name);
       form.append('duration', String(Math.round((rec.stoppedAt - rec.start) / 1000) || ''));
       data = await api('/api/record', { method: 'POST', body: form });
@@ -660,11 +681,15 @@ $('#chatForm').addEventListener('submit', async e => {
   const bubble = addMsg('bot', `<p class="who">${esc(name)}</p><span class="typing"><span></span><span></span><span></span></span>`);
   try {
     const speak = $('#speakToggle').checked;
-    const r = await api('/api/chat', { method: 'POST', body: { question: q, person_name: name, speak } });
-    const quotes = r.sources.filter(s => s.quote).map(s => `
+    const r = await api('/api/chat', { method: 'POST', body: { question: q, person_name: name } });
+    const who = isSelf() ? 'yourself' : name;
+    const quotes = r.sources.filter(s => s.quote).map((s, i) => `
       <figure class="quote">
         <blockquote>“${esc(s.quote)}”</blockquote>
-        <button data-id="${s.id}">From “${esc(s.title)}”${s.memory_date ? ` · ${esc(s.memory_date)}` : ''}</button>
+        <div class="quote-actions">
+          ${s.voice ? `<button class="hear" data-i="${i}">▶ Hear ${esc(who)} say it</button>` : ''}
+          <button class="src" data-id="${s.id}">From “${esc(s.title)}”${s.memory_date ? ` · ${esc(s.memory_date)}` : ''}</button>
+        </div>
       </figure>`).join('');
     bubble.innerHTML = `
       <p class="who">${esc(name)}</p>
@@ -672,9 +697,14 @@ $('#chatForm').addEventListener('submit', async e => {
       ${r.grounded && quotes ? `<p class="quote-label">In ${esc(isSelf() ? 'your' : 'their')} own words</p>${quotes}` : ''}
       ${!r.grounded ? `<div class="not-yet">${esc(isSelf() ? 'You haven’t' : name + ' hasn’t')} talked about this yet. It could be a great question for the next recording.
          <div class="row-actions"><button class="pill pill-accent" data-record>Record this story</button></div></div>` : ''}
-      <div class="msg-actions"><button class="listen">Listen</button></div>`;
-    bubble.querySelector('.listen').onclick = () => r.tts_url ? new Audio(r.tts_url).play() : browserSpeak(r.answer);
-    bubble.querySelectorAll('.quote button').forEach(b => (b.onclick = async () => {
+      `;
+    const voiced = r.sources.filter(s => s.quote);
+    bubble.querySelectorAll('.quote .hear').forEach(b => (b.onclick = () => {
+      const v = voiced[+b.dataset.i].voice;
+      playVoice(v.url, v.start, v.end, b);
+      track('clip_played');
+    }));
+    bubble.querySelectorAll('.quote .src').forEach(b => (b.onclick = async () => {
       const m = state.memories.find(x => x.id === b.dataset.id) || await api(`/api/memories/${b.dataset.id}`).catch(() => null);
       openMemory(m);
     }));
@@ -684,7 +714,8 @@ $('#chatForm').addEventListener('submit', async e => {
         $('#prompts').insertAdjacentHTML('afterbegin', `<button class="active">${esc(q)}</button>`);
       }, 50);
     });
-    if (speak) r.tts_url ? new Audio(r.tts_url).play().catch(() => {}) : r.grounded && browserSpeak(r.answer);
+    const first = bubble.querySelector('.quote .hear');
+    if (speak && first) first.click();
   } catch (err) {
     bubble.innerHTML = `<p class="answer">Sorry, that didn’t work. ${esc(err.message)}</p>`;
   }
@@ -723,100 +754,17 @@ async function loadStory(force = false) {
 }
 $('#refreshStory').addEventListener('click', () => loadStory(true));
 
-function renderVoiceStatus() {
+async function renderVoiceStatus() {
   const el = $('#voiceStatus');
   if (!el || !state.person) return;
-  const preset = state.voices?.presets?.find(v => v.id === state.person.voice_id);
-  if (!state.health?.voice || state.family?.plan !== 'lifetime') el.innerHTML = 'Stories are read out loud by your device’s own voice. With Lifetime they’re read in a warm, natural voice, or in theirs.';
-  else if (state.person.voice_id && !preset) el.innerHTML = `<b>●</b> ${esc(state.person.name)}’s own voice is ready. Every story will play in it.`;
-  else el.textContent = `Stories are read in the “${preset?.name || state.voices?.presets?.[0]?.name || 'gentle'}” reading voice for now.`;
-  updateCloneBtn();
-}
-
-async function renderVoiceOptions() {
   try {
-    state.voices ||= await api('/api/voices');
-    const current = state.person?.voice_id || state.voices.default_voice_id;
-    $('#presetVoicesGrid').innerHTML = state.voices.presets.map(v =>
-      `<button type="button" data-voice="${esc(v.id)}" aria-pressed="${v.id === current}"><span>${esc(v.name)}</span><small>${esc(v.description)}</small></button>`).join('');
-    renderVoiceStatus();
-  } catch { /* optional */ }
+    const v = await api(`/api/persons/${encodeURIComponent(state.person.name)}/voice`);
+    const who = isSelf() ? 'your' : `${state.person.name}’s`;
+    el.innerHTML = v.recordings
+      ? `<b>●</b> ${v.minutes < 1 ? 'Under a minute' : `${v.minutes} minutes`} of ${esc(who)} real voice kept, across ${v.recordings} ${v.recordings === 1 ? 'recording' : 'recordings'}.`
+      : `No recordings yet. Every story you record keeps ${esc(who)} real voice.`;
+  } catch { el.textContent = ''; }
 }
-$('#presetVoicesGrid').addEventListener('click', async e => {
-  const b = e.target.closest('[data-voice]');
-  if (!b) return;
-  try {
-    await api(`/api/persons/${encodeURIComponent(state.person.name)}/voice`, { method: 'POST', body: { voice_id: b.dataset.voice } });
-    state.person.voice_id = b.dataset.voice;
-    renderVoiceOptions();
-    toast('Reading voice changed');
-  } catch (err) { fail(err); }
-});
-
-$('#sampleFiles').addEventListener('change', e => {
-  [...e.target.files].forEach(f => state.samples.push(f));
-  e.target.value = '';
-  renderSamples();
-});
-
-const sampleRec = { media: null, chunks: [], timer: null };
-$('#sampleRecBtn').addEventListener('click', async () => {
-  const btn = $('#sampleRecBtn');
-  if (sampleRec.media?.state === 'recording') return sampleRec.media.stop();
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mime = pickMime();
-    sampleRec.media = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    sampleRec.chunks = [];
-    sampleRec.media.ondataavailable = e => e.data.size && sampleRec.chunks.push(e.data);
-    sampleRec.media.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      clearInterval(sampleRec.timer);
-      const type = sampleRec.media.mimeType || 'audio/webm';
-      state.samples.push(new File(sampleRec.chunks, `recording-${state.samples.length + 1}.${type.includes('mp4') ? 'm4a' : 'webm'}`, { type }));
-      btn.textContent = 'Record their voice';
-      renderSamples();
-    };
-    sampleRec.media.start();
-    const start = Date.now();
-    sampleRec.timer = setInterval(() => {
-      const s = Math.floor((Date.now() - start) / 1000);
-      btn.textContent = `Stop · ${s}s`;
-      if (s >= 120) sampleRec.media.stop();
-    }, 500);
-  } catch { toast('The microphone is blocked.', 'error'); }
-});
-
-function renderSamples() {
-  $('#sampleList').innerHTML = state.samples.map((f, i) =>
-    `<li><span>${esc(f.name)}</span><button data-i="${i}" aria-label="Remove">×</button></li>`).join('');
-  updateCloneBtn();
-}
-$('#sampleList').addEventListener('click', e => {
-  const b = e.target.closest('button[data-i]');
-  if (b) { state.samples.splice(+b.dataset.i, 1); renderSamples(); }
-});
-$('#consentBox').addEventListener('change', updateCloneBtn);
-function updateCloneBtn() {
-  $('#cloneBtn').disabled = !(state.health?.voice && state.samples.length && $('#consentBox').checked);
-}
-
-$('#cloneBtn').addEventListener('click', async () => {
-  const btn = $('#cloneBtn');
-  const form = new FormData();
-  form.append('person_name', state.person.name);
-  state.samples.forEach(f => form.append('samples', f, f.name));
-  busy(btn, true);
-  try {
-    const r = await api('/api/clone-voice', { method: 'POST', body: form });
-    state.person.voice_id = r.voice_id;
-    state.samples = [];
-    renderSamples();
-    renderVoiceStatus();
-    toast(`${state.person.name}’s voice is ready`);
-  } catch (err) { fail(err); }
-  finally { busy(btn, false); updateCloneBtn(); }
-});
 
 $('#exportBtn').addEventListener('click', async () => {
   try {
@@ -934,7 +882,7 @@ async function boot() {
   if (paid) history.replaceState(null, '', location.pathname + location.hash);
   route();
   state.health = await api('/api/health').catch(() => null);
-  $('#sttHint').textContent = state.health?.voice ? 'written out when you keep the story' : SR ? 'written out live as they talk' : 'type below';
+  $('#sttHint').textContent = state.health?.transcription ? 'written out word for word when you keep the story' : SR ? 'written out live as they talk' : 'type below';
   if (!state.key) return;
   try {
     await loadFamily();

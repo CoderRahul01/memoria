@@ -86,6 +86,19 @@ async function initDB() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS credit_ledger_month ON credit_ledger (created_at DESC, kind);
+    CREATE TABLE IF NOT EXISTS recordings (
+      memory_id UUID PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+      family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+      mime TEXT NOT NULL,
+      audio BYTEA NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      duration_s REAL,
+      words JSONB NOT NULL DEFAULT '[]',
+      language TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    -- Generated voices were retired: Listen only ever plays the real recording.
+    DELETE FROM credits WHERE provider IN ('elevenlabs_tts', 'elevenlabs_voices');
     CREATE TABLE IF NOT EXISTS credits (
       provider TEXT PRIMARY KEY,
       label TEXT NOT NULL,
@@ -151,15 +164,18 @@ const saveMemory = (familyId, d) => one(
   [familyId, d.person_name, d.title, d.content, JSON.stringify(d.tags || []), JSON.stringify(d.people || []),
    d.category || 'story', d.memory_date || null, d.source || 'typed']);
 
-const getMemory = (familyId, id) => one('SELECT * FROM memories WHERE family_id = $1 AND id = $2', [familyId, id]).catch(() => null);
+const getMemory = (familyId, id) => one('SELECT m.*, EXISTS (SELECT 1 FROM recordings r WHERE r.memory_id = m.id) AS has_voice, (SELECT r.duration_s FROM recordings r WHERE r.memory_id = m.id) AS voice_seconds FROM memories m WHERE m.family_id = $1 AND m.id = $2', [familyId, id]).catch(() => null);
 const getAllMemories = (familyId, personName) =>
-  q('SELECT * FROM memories WHERE family_id = $1 AND person_name = $2 ORDER BY created_at DESC', [familyId, personName]);
+  q('SELECT m.*, EXISTS (SELECT 1 FROM recordings r WHERE r.memory_id = m.id) AS has_voice, (SELECT r.duration_s FROM recordings r WHERE r.memory_id = m.id) AS voice_seconds FROM memories m WHERE m.family_id = $1 AND m.person_name = $2 ORDER BY m.created_at DESC', [familyId, personName]);
+const voiceMinutes = (familyId, personName) => one(
+  `SELECT COALESCE(SUM(r.duration_s), 0) / 60.0 AS minutes, COUNT(*)::int AS n FROM recordings r JOIN memories m ON m.id = r.memory_id
+   WHERE r.family_id = $1 AND m.person_name = $2`, [familyId, personName]);
 const countMemories = familyId => one('SELECT COUNT(*)::int AS n FROM memories WHERE family_id = $1', [familyId]).then(r => r.n);
 
 function searchMemories(familyId, query, personName) {
   const like = `%${query}%`;
-  return q(`SELECT * FROM memories WHERE family_id = $1 AND person_name = $2
-            AND (title ILIKE $3 OR content ILIKE $3 OR tags::text ILIKE $3) ORDER BY created_at DESC`, [familyId, personName, like]);
+  return q(`SELECT m.*, EXISTS (SELECT 1 FROM recordings r WHERE r.memory_id = m.id) AS has_voice, (SELECT r.duration_s FROM recordings r WHERE r.memory_id = m.id) AS voice_seconds FROM memories m WHERE m.family_id = $1 AND m.person_name = $2
+            AND (m.title ILIKE $3 OR m.content ILIKE $3 OR m.tags::text ILIKE $3) ORDER BY m.created_at DESC`, [familyId, personName, like]);
 }
 const deleteMemory = (familyId, id) => q('DELETE FROM memories WHERE family_id = $1 AND id = $2', [familyId, id]);
 const updateMemoryTTS = (id, url) => q('UPDATE memories SET tts_url = $2 WHERE id = $1', [id, url]);
@@ -180,6 +196,6 @@ module.exports = {
   pool, q, one, initDB,
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime,
   getAllPersons, getPerson, savePerson, updatePersonAssistant, updatePersonVoiceId,
-  saveMemory, getMemory, getAllMemories, countMemories, searchMemories, deleteMemory, updateMemoryTTS,
+  saveMemory, getMemory, getAllMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
   heartbeat, logEvent, setCredit
 };

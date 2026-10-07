@@ -31,8 +31,8 @@ SELECT * FROM (VALUES
   ('event', 'transcribed', 'had a recording written out'),
   ('event', 'question_asked', 'asked a question'),
   ('event', 'tribute', 'read the tribute'),
-  ('event', 'voice_cloned', 'created a voice'),
-  ('event', 'listen', 'listened to a story'),
+  ('event', 'listen', 'listened to a recording'),
+  ('event', 'clip_played', 'heard the moment it was said'),
   ('event', 'checkout_started', 'opened checkout'),
   ('event', 'purchase', 'bought Lifetime'),
   ('event', 'upgrade_viewed', 'looked at Lifetime'),
@@ -47,7 +47,6 @@ SELECT * FROM (VALUES
   ('step', 'memory_saved', 'Keeping a story'),
   ('step', 'transcribed', 'Turning voice into text'),
   ('step', 'tribute', 'Writing the tribute'),
-  ('step', 'voice_cloned', 'Creating a voice'),
   ('view', 'home', 'reading the album'),
   ('view', 'record', 'recording a story'),
   ('view', 'ask', 'asking a question'),
@@ -67,8 +66,8 @@ SELECT * FROM (
   SELECT 3, 'Loved ones', (SELECT COUNT(*) FROM persons)::numeric,
          'across all family albums'
   UNION ALL
-  SELECT 4, 'Voices created', (SELECT COUNT(*) FROM persons WHERE voice_cloned)::numeric,
-         'family members’ own voices'
+  SELECT 4, 'Minutes of real voice', ROUND((SELECT COALESCE(SUM(duration_s), 0) FROM recordings)::numeric / 60, 1),
+         (SELECT COUNT(*) FROM recordings) || ' recordings kept'
 ) k;
 
 -- The journey from first visit to paying, in order.

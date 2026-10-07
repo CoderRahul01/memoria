@@ -17,13 +17,50 @@ const elevenlabs = require('./elevenlabs');
 const backboard = require('./backboard');
 const billing = require('./billing');
 const credits = require('./credits');
+const recordings = require('./recordings');
 const { configured } = require('./env');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', true);
-app.use(cors());
+app.disable('x-powered-by');
+
+// Only Memoria's own sites may call the API from a browser.
+const ORIGINS = new Set(['https://memoria-family.vercel.app', 'https://memoria-web-ten.vercel.app',
+  'https://memoria-qlji.onrender.com', 'http://localhost:3000',
+  ...(process.env.EXTRA_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)]);
+app.use(cors({ origin: (origin, cb) => cb(null, !origin || ORIGINS.has(origin)) }));
+
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Frame-Options': 'DENY',
+    'Permissions-Policy': 'microphone=(self), camera=(), geolocation=()'
+  });
+  next();
+});
+
+// Simple per-IP rate limits (one Render instance, so memory is enough).
+const hits = new Map();
+function limit(bucket, max, windowMs) {
+  return (req, res, next) => {
+    const key = `${bucket}:${req.ip}`;
+    const now = Date.now();
+    const h = hits.get(key);
+    if (!h || now > h.reset) hits.set(key, { n: 1, reset: now + windowMs });
+    else if (++h.n > max) {
+      res.set('Retry-After', Math.ceil((h.reset - now) / 1000));
+      return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' });
+    }
+    if (hits.size > 20_000) hits.clear();
+    next();
+  };
+}
+setInterval(() => { const now = Date.now(); for (const [k, h] of hits) if (now > h.reset) hits.delete(k); }, 60_000).unref();
+app.use('/api', limit('api', 300, 60_000));
+app.post('/api/family', limit('family', 12, 3_600_000));
 
 // ── Dodo webhook (needs the raw body for signature checks) ─────
 app.post('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
@@ -86,8 +123,8 @@ async function requireFamily(req, res, next) {
 }
 
 const limitsFor = family => family.plan === 'lifetime'
-  ? { persons: null, memories: null, voice: true, keepsake: true }
-  : { ...billing.FREE_LIMITS, voice: false, keepsake: false };
+  ? { persons: null, memories: null, record_minutes: 30, keepsake: true }
+  : { ...billing.FREE_LIMITS, record_minutes: 10, keepsake: false };
 
 const publicFamily = (f, counts = {}) => ({
   id: f.id.slice(0, 8), owner_name: f.owner_name, plan: f.plan, created_at: f.created_at,
@@ -120,6 +157,7 @@ app.post('/api/family', wrap(async (req, res) => {
 
 app.use('/api', (req, res, next) => {
   if (['/health', '/family'].includes(req.path) && !(req.path === '/family' && req.method !== 'POST')) return next();
+  if (req.path.startsWith('/audio/') && req.method === 'GET') return next();
   return requireFamily(req, res, next);
 });
 
@@ -139,7 +177,7 @@ app.post('/api/presence', (req, res) => {
   res.json({ ok: true });
 });
 
-const TRACKABLE = new Set(['view', 'prompt_used', 'listen', 'share_link', 'upgrade_viewed', 'print', 'export', 'onboarded']);
+const TRACKABLE = new Set(['view', 'prompt_used', 'clip_played', 'share_link', 'upgrade_viewed', 'print', 'export', 'onboarded']);
 app.post('/api/track', (req, res) => {
   const { name, props } = req.body || {};
   if (TRACKABLE.has(name)) db.logEvent(req.family.id, name, typeof props === 'object' && props ? props : {});
@@ -186,33 +224,6 @@ function syncToBackboard(memory) {
     .catch(e => { synced.delete(memory.id); console.warn('Backboard sync failed:', e.message); });
 }
 
-async function voiceFor(familyId, personName) {
-  const person = personName ? await db.getPerson(familyId, personName) : null;
-  return person?.voice_id || null;
-}
-
-// Natural read-aloud voice is a Lifetime benefit; free families hear their device's voice.
-async function speakable(family, text) {
-  if (!elevenlabs.enabled() || family.plan !== 'lifetime') return false;
-  if (await credits.allow('tts_chars', text.length, family)) return true;
-  db.logEvent(family.id, 'credit_fallback', { kind: 'tts_chars' });
-  return false;
-}
-
-async function tts(family, text, voiceId, key) {
-  const url = await elevenlabs.textToSpeech(text, voiceId, key);
-  if (url) credits.record(family.id, 'tts_chars', Math.min(text.length, 2500));
-  return url;
-}
-
-async function queueTTS(family, memory) {
-  try {
-    if (!await speakable(family, memory.content)) return;
-    const url = await tts(family, memory.content, await voiceFor(family.id, memory.person_name), memory.id);
-    if (url) await db.updateMemoryTTS(memory.id, url);
-  } catch (e) { console.warn('TTS failed:', e.message); }
-}
-
 async function checkMemoryLimit(family) {
   const lim = limitsFor(family);
   if (lim.memories && await db.countMemories(family.id) >= lim.memories) {
@@ -231,7 +242,6 @@ async function createMemory(family, content, person_name, source) {
     memory_date: extracted.memory_date, people: extracted.people_mentioned
   });
   db.logEvent(family.id, 'memory_saved', { source, engine: extracted.engine, chars: content.length }, Date.now() - t0);
-  queueTTS(family, memory);
   if (await credits.allow('backboard', 0, family)) syncToBackboard(memory);
   return { ...memory, summary: extracted.summary };
 }
@@ -241,7 +251,7 @@ app.get('/api/health', wrap(async (req, res) => {
   res.json({
     status: 'ok',
     ai: await gemma.checkHealth(),
-    voice: elevenlabs.enabled(),
+    transcription: elevenlabs.enabled(),
     payments: billing.enabled()
   });
 }));
@@ -297,38 +307,61 @@ app.post('/api/memories', wrap(async (req, res) => {
   res.json({ success: true, memory });
 }));
 
-// Prefers ElevenLabs Scribe; falls back to the browser's live transcript.
+// Keeps the real recording. Scribe writes it out word for word (with timings); the browser's
+// live transcript is the fallback, and the family's own corrections always win.
 app.post('/api/record', upload.single('audio'), wrap(async (req, res) => {
   try {
+    if (!req.file) throw httpError(400, 'No recording arrived. Please try again.');
+    if (!req.body.person_name) throw httpError(400, 'Choose whose memory this is.');
     await checkMemoryLimit(req.family);
-    const browserText = req.body.transcription?.trim();
-    let transcription = null;
+    const lim = limitsFor(req.family);
+    const buffer = fs.readFileSync(req.file.path);
+    // Length: the browser reports it; otherwise estimate from size (~32 kbps Opus).
+    const seconds = Math.max(1, Number(req.body.duration) || buffer.length / 4000);
+    if (seconds > lim.record_minutes * 60 + 15) {
+      throw httpError(413, req.family.plan === 'lifetime'
+        ? 'That recording is over 30 minutes. Please split it into shorter stories.'
+        : 'Free recordings can be up to 10 minutes. Split it into two stories, or unlock Lifetime for 30-minute recordings.');
+    }
+    const minutes = seconds / 60;
+    const typed = req.body.transcription?.trim();
+    const edited = req.body.edited === 'true';
+    let heard = null;
     const t0 = Date.now();
-    // Length of the recording: the browser reports it; otherwise estimate from size (~24 kbps Opus).
-    const minutes = Math.max(0.1, Math.min(30, (Number(req.body.duration) || req.file?.size / 3000 || 0) / 60));
-    if (req.file && elevenlabs.enabled()) {
+    if (elevenlabs.enabled()) {
       if (await credits.allow('stt_minutes', minutes, req.family)) {
-        transcription = await elevenlabs.transcribeAudio(req.file).catch(e => (console.warn('STT:', e.message), null));
-        if (transcription) credits.record(req.family.id, 'stt_minutes', minutes);
-        db.logEvent(req.family.id, 'transcribed', { minutes: Math.round(minutes * 10) / 10 }, Date.now() - t0, !!transcription);
+        heard = await elevenlabs.transcribe(buffer, req.file.mimetype, req.file.originalname).catch(e => (console.warn('STT:', e.message), null));
+        if (heard) credits.record(req.family.id, 'stt_minutes', minutes);
+        db.logEvent(req.family.id, 'transcribed', { minutes: Math.round(minutes * 10) / 10, language: heard?.language }, Date.now() - t0, !!heard);
       } else {
         db.logEvent(req.family.id, 'credit_fallback', { kind: 'stt_minutes' });
       }
     }
-    transcription = transcription || browserText;
-    if (!transcription) {
-      throw httpError(422, 'We couldn’t write out that recording right now. Please type the story in the box, then keep it.');
+    const content = (edited && typed) || heard?.text || typed;
+    if (!content) {
+      throw httpError(422, 'We couldn’t write out that recording right now. Please type what was said in the box, then keep it.');
     }
-    const memory = await createMemory(req.family, transcription.slice(0, 8000), req.body.person_name, 'voice');
-    res.json({ success: true, memory });
+    const memory = await createMemory(req.family, content.slice(0, 8000), req.body.person_name, 'voice');
+
+    const mb = buffer.length / 1048576;
+    let kept = false;
+    if (await credits.allow('storage_mb', mb, req.family)) {
+      await recordings.save(memory.id, req.family.id, {
+        buffer, mime: req.file.mimetype || 'audio/webm', duration: seconds, words: heard?.words, language: heard?.language
+      });
+      kept = true;
+    } else {
+      db.logEvent(req.family.id, 'credit_fallback', { kind: 'storage_mb' });
+    }
+    res.json({ success: true, memory: { ...memory, has_voice: kept, voice_seconds: kept ? seconds : null }, voice_kept: kept });
   } finally {
-    cleanup(req.file); // raw audio is never kept
+    cleanup(req.file); // the temp file goes; the recording itself lives in the database
   }
 }));
 
 // ── ASK ────────────────────────────────────────────────────────
 app.post('/api/chat', wrap(async (req, res) => {
-  const { question, person_name, speak } = req.body;
+  const { question, person_name } = req.body;
   if (!question?.trim()) throw httpError(400, 'Ask a question first.');
   if (!person_name) throw httpError(400, 'Choose whose stories to ask about.');
   aiBudget(req.family);
@@ -359,63 +392,35 @@ app.post('/api/chat', wrap(async (req, res) => {
   }
 
   // Each source carries the exact words it came from, so families can check the answer.
-  const sources = gemma.rankMemories(q, result.sources, 3).concat(result.sources).filter((m, i, a) => a.findIndex(x => x.id === m.id) === i)
-    .slice(0, 3).map(m => ({ id: m.id, title: m.title, memory_date: m.memory_date, quote: gemma.excerpt(m, q) }));
+  const picked = gemma.rankMemories(q, result.sources, 3).concat(result.sources).filter((m, i, a) => a.findIndex(x => x.id === m.id) === i).slice(0, 3);
+  const spoken = new Map((await recordings.getWords(picked.map(m => m.id))).map(r => [r.memory_id, r]));
+  const sources = picked.map(m => {
+    const quote = gemma.excerpt(m, q);
+    const rec = spoken.get(m.id);
+    const clip = rec ? recordings.clipFor(rec.words, quote) : null;
+    return {
+      id: m.id, title: m.title, memory_date: m.memory_date, quote,
+      voice: rec ? { url: recordings.signedUrl(m.id), start: clip?.start ?? 0, end: clip?.end ?? null } : null
+    };
+  });
   const grounded = gemma.rankMemories(q, memories, 1).length > 0;
   db.logEvent(req.family.id, 'question_asked', { engine: result.engine, sources: sources.length, grounded }, Date.now() - t0);
 
-  let tts_url = null;
-  if (speak && grounded && await speakable(req.family, result.answer)) {
-    const v = await voiceFor(req.family.id, person_name);
-    tts_url = await tts(req.family, result.answer, v, `chat_${crypto.randomUUID()}`).catch(() => null);
-  }
-  res.json({ answer: result.answer, sources: grounded ? sources : [], grounded, tts_url });
+  res.json({ answer: result.answer, sources: grounded ? sources : [], grounded });
 }));
 
-// ── SPEAK A MEMORY ─────────────────────────────────────────────
-app.post('/api/speak', wrap(async (req, res) => {
-  const memory = req.body.memory_id ? await db.getMemory(req.family.id, req.body.memory_id) : null;
+// ── LISTEN: only ever the real recording ──────────────────────
+app.get('/api/memories/:id/voice', wrap(async (req, res) => {
+  const memory = await db.getMemory(req.family.id, req.params.id);
   if (!memory) throw httpError(404, 'Memory not found');
+  if (!memory.has_voice) throw httpError(404, 'This story was typed, so there’s no recording of it.');
   db.logEvent(req.family.id, 'listen', {});
-  if (memory.tts_url && fs.existsSync(path.join(__dirname, '../public', memory.tts_url))) return res.json({ tts_url: memory.tts_url });
-  if (!await speakable(req.family, memory.content)) return res.json({ tts_url: null });
-  const url = await tts(req.family, memory.content, await voiceFor(req.family.id, memory.person_name), memory.id);
-  if (url) await db.updateMemoryTTS(memory.id, url);
-  res.json({ tts_url: url });
+  res.json({ url: recordings.signedUrl(memory.id), seconds: memory.voice_seconds });
 }));
 
-// ── VOICES ─────────────────────────────────────────────────────
-app.get('/api/voices', (req, res) => {
-  res.json({ enabled: elevenlabs.enabled(), default_voice_id: elevenlabs.DEFAULT_VOICE_ID, presets: elevenlabs.PRESET_VOICES });
-});
-
-app.post('/api/persons/:name/voice', wrap(async (req, res) => {
-  const { voice_id } = req.body;
-  if (!elevenlabs.PRESET_VOICES.some(v => v.id === voice_id)) throw httpError(400, 'Choose one of the reading voices.');
-  await db.savePerson(req.family.id, { name: req.params.name });
-  await db.updatePersonVoiceId(req.family.id, req.params.name, voice_id);
-  res.json({ success: true, voice_id });
-}));
-
-app.post('/api/clone-voice', upload.array('samples', 10), wrap(async (req, res) => {
-  try {
-    if (!limitsFor(req.family).voice) throw httpError(402, 'Hearing stories in their own voice is part of Lifetime.', { code: 'limit' });
-    const { person_name } = req.body;
-    if (!person_name) throw httpError(400, 'Choose whose voice this is.');
-    if (!req.files?.length) throw httpError(400, 'Add at least one recording of their voice.');
-    if (!await credits.allow('voice_slots', 1, req.family)) {
-      db.logEvent(req.family.id, 'credit_fallback', { kind: 'voice_slots' });
-      throw httpError(409, 'Voice creation is fully booked right now. We’ve been notified and will open more space soon.');
-    }
-    const t0 = Date.now();
-    const voice_id = await elevenlabs.cloneVoice(`${person_name} · ${req.family.id.slice(0, 8)}`, `Voice of ${person_name}, recorded by family in Memoria`, req.files);
-    await db.savePerson(req.family.id, { name: person_name });
-    await db.updatePersonVoiceId(req.family.id, person_name, voice_id, true);
-    db.logEvent(req.family.id, 'voice_cloned', { samples: req.files.length }, Date.now() - t0);
-    res.json({ success: true, voice_id });
-  } finally {
-    cleanup(req.files);
-  }
+app.get('/api/persons/:name/voice', wrap(async (req, res) => {
+  const v = await db.voiceMinutes(req.family.id, req.params.name);
+  res.json({ minutes: Math.round(Number(v?.minutes || 0) * 10) / 10, recordings: v?.n || 0 });
 }));
 
 // ── LIFE STORY ─────────────────────────────────────────────────
@@ -437,6 +442,26 @@ app.get('/api/export/:person_name', wrap(async (req, res) => {
   res.json({ person: name, exported_at: new Date().toISOString(), memories: memories.map(({ family_id, ...m }) => m) });
 }));
 
+// ── AUDIO: signed, short-lived links; supports seeking (Range) ──
+app.get('/api/audio/:id', wrap(async (req, res) => {
+  const { id } = req.params;
+  if (!recordings.verify(id, req.query.exp, req.query.sig)) return res.status(403).json({ error: 'This link has expired. Open the story again.' });
+  const rec = await recordings.getAudio(id);
+  if (!rec) return res.status(404).end();
+  const total = rec.audio.length;
+  res.set({ 'Content-Type': rec.mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'Content-Disposition': 'inline' });
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  if (range) {
+    let start = range[1] === '' ? total - Number(range[2]) : Number(range[1]);
+    let end = range[1] !== '' && range[2] !== '' ? Number(range[2]) : total - 1;
+    if (start < 0 || start >= total || end < start) return res.status(416).set('Content-Range', `bytes */${total}`).end();
+    end = Math.min(end, total - 1);
+    res.status(206).set({ 'Content-Range': `bytes ${start}-${end}/${total}`, 'Content-Length': end - start + 1 });
+    return res.end(rec.audio.subarray(start, end + 1));
+  }
+  res.set('Content-Length', total).end(rec.audio);
+}));
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 
 db.initDB().then(async () => {
@@ -446,7 +471,7 @@ db.initDB().then(async () => {
     credits.start();
     console.log(`\n🧠 Memoria running at http://localhost:${PORT}`);
     console.log(`🤖 AI engine: ${ai.engine}`);
-    console.log(`🎙️  ElevenLabs: ${elevenlabs.enabled() ? 'on' : 'off (browser speech fallback)'}`);
+    console.log(`🎙️  Transcription: ${elevenlabs.enabled() ? 'ElevenLabs Scribe' : 'browser only'}`);
     console.log(`💳 Payments: ${billing.enabled() ? 'on' : 'off'}\n`);
   });
 }).catch(err => {
