@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: memoria
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Backboard — Gemma 4 (open weights) + per-person memory for "Ask" ($5 partner credit)
+      - key: BACKBOARD_API_KEY
+        sync: false
+      - key: BACKBOARD_LLM_PROVIDER
+        value: openrouter
+      - key: BACKBOARD_MODEL
+        value: google/gemma-4-31b-it
+      # ElevenLabs — Scribe transcription, TTS, voice cloning ($100 credit)
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        value: EMuO6fFLrXKOryHzij6K
+      # Tinker — open-model backup engine; TINKER_MODEL_PATH is a tinker:// checkpoint
+      - key: TINKER_API_KEY
+        sync: false
+      - key: TINKER_MODEL_PATH
+        sync: false
+      - key: TINKER_MODEL
+        value: Qwen/Qwen3.6-35B-A3B
+      # Free plan disks are ephemeral: memories reset on each deploy.
+      # On a paid plan, attach a disk and point DATA_DIR at it:
+      # - key: DATA_DIR
+      #   value: /var/data
+    # disk:
+    #   name: memoria-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
