@@ -68,6 +68,12 @@ async function initDB() {
     );
     CREATE INDEX IF NOT EXISTS events_created ON events (created_at DESC);
     CREATE INDEX IF NOT EXISTS events_name_created ON events (name, created_at DESC);
+    CREATE TABLE IF NOT EXISTS presence (
+      family_id UUID PRIMARY KEY REFERENCES families(id) ON DELETE CASCADE,
+      view TEXT NOT NULL,
+      person TEXT,
+      seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 }
 
@@ -125,6 +131,12 @@ function searchMemories(familyId, query, personName) {
 const deleteMemory = (familyId, id) => q('DELETE FROM memories WHERE family_id = $1 AND id = $2', [familyId, id]);
 const updateMemoryTTS = (id, url) => q('UPDATE memories SET tts_url = $2 WHERE id = $1', [id, url]);
 
+// ── Presence (who is using Memoria right now) ──
+const heartbeat = (familyId, view, person) => q(
+  `INSERT INTO presence (family_id, view, person, seen_at) VALUES ($1,$2,$3,now())
+   ON CONFLICT (family_id) DO UPDATE SET view = EXCLUDED.view, person = EXCLUDED.person, seen_at = now()`,
+  [familyId, view, person]).catch(e => console.warn('presence:', e.message));
+
 // ── Events (analytics) ─────────────────────────
 function logEvent(familyId, name, props = {}, ms = null, ok = true) {
   return q('INSERT INTO events (family_id, name, props, ms, ok) VALUES ($1,$2,$3,$4,$5)',
@@ -136,5 +148,5 @@ module.exports = {
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime,
   getAllPersons, getPerson, savePerson, updatePersonAssistant, updatePersonVoiceId,
   saveMemory, getMemory, getAllMemories, countMemories, searchMemories, deleteMemory, updateMemoryTTS,
-  logEvent
+  heartbeat, logEvent
 };

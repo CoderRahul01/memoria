@@ -52,7 +52,7 @@ Why it travels globally: speech-to-text works in 90+ languages, there's nothing 
 - **Album** with a "life so far" timeline placed by year, search and filters
 - **Ask** grounded in that person's stories, with the exact quote and its source story; an honest "they haven't talked about this yet" with a one-tap "Record this story"
 - **Keep forever**: an AI-written tribute, their own cloned voice (with consent), reading voices, JSON download, a printable keepsake book, and invite-the-family
-- **Founder dashboard** (`/admin`): live users and what they're doing, families, daily and weekly actives, stories, questions, revenue, the journey from opening to buying, AI speed and errors per step, the latest activity feed, regions
+- **Memoria Pulse** (a separate analytics app on Vercel, read-only access to the database): live users and what they're doing, families, daily and weekly actives, stories, questions, revenue, the journey from opening to buying, AI speed and errors per step, the latest activity feed, regions
 - Data in Postgres (Neon), so it survives redeploys
 
 ## What we can do next (ranked by impact ÷ effort)
@@ -72,7 +72,7 @@ Why it travels globally: speech-to-text works in 90+ languages, there's nothing 
 
 - [x] Render backend with Neon Postgres, Vercel frontend
 - [x] Live Dodo product + webhook
-- [x] Founder analytics
+- [x] Founder analytics (Memoria Pulse)
 - [ ] Set the production env vars on Render (see the README)
 - [ ] Post on DEV (Hacktoberfest), X and LinkedIn with a 30-second screen recording of the cassette in action
 - [ ] Submit to Product Hunt one week later, once the first real families' stories exist

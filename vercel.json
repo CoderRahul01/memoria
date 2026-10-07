@@ -10,10 +10,6 @@
       "destination": "https://memoria-qlji.onrender.com/audio/:path*"
     },
     {
-      "source": "/admin",
-      "destination": "/admin.html"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

@@ -33,9 +33,6 @@ services:
       # Neon Postgres — families, stories, analytics events
       - key: DATABASE_URL
         sync: false
-      # Password for the /admin founder dashboard
-      - key: ADMIN_KEY
-        sync: false
       # Dodo Payments — Memoria Lifetime ($19 one-time)
       - key: DODO_PRODUCT_ID
         value: pdt_0NpCLdrsbg89TuTOQ8RfI

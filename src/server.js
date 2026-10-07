@@ -16,12 +16,10 @@ const gemma = require('./gemma');
 const elevenlabs = require('./elevenlabs');
 const backboard = require('./backboard');
 const billing = require('./billing');
-const analytics = require('./analytics');
 const { configured } = require('./env');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ADMIN_KEY = configured('ADMIN_KEY');
 
 app.set('trust proxy', true);
 app.use(cors());
@@ -121,7 +119,6 @@ app.post('/api/family', wrap(async (req, res) => {
 
 app.use('/api', (req, res, next) => {
   if (['/health', '/family'].includes(req.path) && !(req.path === '/family' && req.method !== 'POST')) return next();
-  if (req.path.startsWith('/admin')) return next();
   return requireFamily(req, res, next);
 });
 
@@ -136,7 +133,8 @@ app.patch('/api/family', wrap(async (req, res) => {
 }));
 
 app.post('/api/presence', (req, res) => {
-  analytics.heartbeat(req.family, req.body || {});
+  const { view, person } = req.body || {};
+  db.heartbeat(req.family.id, String(view || 'home').slice(0, 20), person ? String(person).slice(0, 40) : null);
   res.json({ ok: true });
 });
 
@@ -413,16 +411,6 @@ app.get('/api/export/:person_name', wrap(async (req, res) => {
   res.json({ person: name, exported_at: new Date().toISOString(), memories: memories.map(({ family_id, ...m }) => m) });
 }));
 
-// ── ADMIN ANALYTICS ────────────────────────────────────────────
-app.get('/api/admin/stats', wrap(async (req, res) => {
-  const key = req.get('X-Admin-Key') || '';
-  if (!ADMIN_KEY || key.length !== ADMIN_KEY.length || !crypto.timingSafeEqual(Buffer.from(key), Buffer.from(ADMIN_KEY))) {
-    return res.status(401).json({ error: 'Wrong admin key' });
-  }
-  res.json(await analytics.stats());
-}));
-
-app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, '../public/admin.html')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 
 db.initDB().then(async () => {
@@ -432,7 +420,7 @@ db.initDB().then(async () => {
     console.log(`\n🧠 Memoria running at http://localhost:${PORT}`);
     console.log(`🤖 AI engine: ${ai.engine}`);
     console.log(`🎙️  ElevenLabs: ${elevenlabs.enabled() ? 'on' : 'off (browser speech fallback)'}`);
-    console.log(`💳 Payments: ${billing.enabled() ? 'on' : 'off'}  ·  📊 Admin: ${ADMIN_KEY ? '/admin' : 'off (set ADMIN_KEY)'}\n`);
+    console.log(`💳 Payments: ${billing.enabled() ? 'on' : 'off'}\n`);
   });
 }).catch(err => {
   console.error('Failed to start:', err);
