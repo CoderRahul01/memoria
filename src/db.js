@@ -4,6 +4,8 @@
  */
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -74,8 +76,39 @@ async function initDB() {
       person TEXT,
       seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ALTER TABLE persons ADD COLUMN IF NOT EXISTS voice_cloned BOOLEAN NOT NULL DEFAULT false;
+    CREATE TABLE IF NOT EXISTS credit_ledger (
+      id BIGSERIAL PRIMARY KEY,
+      family_id UUID,
+      kind TEXT NOT NULL,
+      units NUMERIC NOT NULL,
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS credit_ledger_month ON credit_ledger (created_at DESC, kind);
+    CREATE TABLE IF NOT EXISTS credits (
+      provider TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      remaining NUMERIC,
+      unit TEXT NOT NULL,
+      budget NUMERIC,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
+  // The Pulse contract: read-only views that Memoria Pulse (and only Pulse) reads.
+  await pool.query(fs.readFileSync(path.join(__dirname, 'pulse.sql'), 'utf8'));
+  await pool.query(`DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pulse_ro') THEN
+      GRANT USAGE ON SCHEMA pulse TO pulse_ro;
+      GRANT SELECT ON ALL TABLES IN SCHEMA pulse TO pulse_ro;
+    END IF;
+  END $$;`);
 }
+
+const setCredit = (provider, label, remaining, unit, budget = null) => remaining == null ? null : q(
+  `INSERT INTO credits (provider, label, remaining, unit, budget, updated_at) VALUES ($1,$2,$3,$4,$5,now())
+   ON CONFLICT (provider) DO UPDATE SET label = EXCLUDED.label, remaining = EXCLUDED.remaining, unit = EXCLUDED.unit,
+     budget = EXCLUDED.budget, updated_at = now()`, [provider, label, remaining, unit, budget]).catch(e => console.warn('credit:', e.message));
 
 // ── Families ───────────────────────────────────
 async function createFamily({ owner_name, timezone, language, device } = {}) {
@@ -109,7 +142,7 @@ const savePerson = (familyId, { name, relationship }) => one(
    ON CONFLICT (family_id, name) DO UPDATE SET relationship = COALESCE(EXCLUDED.relationship, persons.relationship) RETURNING *`,
   [familyId, name, relationship || null]);
 const updatePersonAssistant = (familyId, name, id) => q('UPDATE persons SET backboard_assistant_id = $3 WHERE family_id = $1 AND name = $2', [familyId, name, id]);
-const updatePersonVoiceId = (familyId, name, id) => q('UPDATE persons SET voice_id = $3 WHERE family_id = $1 AND name = $2', [familyId, name, id]);
+const updatePersonVoiceId = (familyId, name, id, cloned = false) => q('UPDATE persons SET voice_id = $3, voice_cloned = $4 WHERE family_id = $1 AND name = $2', [familyId, name, id, cloned]);
 
 // ── Memories ───────────────────────────────────
 const saveMemory = (familyId, d) => one(
@@ -148,5 +181,5 @@ module.exports = {
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime,
   getAllPersons, getPerson, savePerson, updatePersonAssistant, updatePersonVoiceId,
   saveMemory, getMemory, getAllMemories, countMemories, searchMemories, deleteMemory, updateMemoryTTS,
-  heartbeat, logEvent
+  heartbeat, logEvent, setCredit
 };

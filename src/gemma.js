@@ -8,6 +8,7 @@
 
 const { configured } = require('./env');
 const backboard = require('./backboard');
+const credits = require('./credits');
 
 const TINKER_KEY = configured('TINKER_API_KEY');
 const TINKER_BASE = process.env.TINKER_BASE_URL || 'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1';
@@ -37,8 +38,8 @@ async function viaTinker(prompt, system) {
 }
 
 /** Returns { text, engine } or null when no model is reachable. */
-async function generate(prompt, system) {
-  if (backboard.enabled()) {
+async function generate(prompt, system, family = null) {
+  if (backboard.enabled() && await credits.allow('backboard', 0, family)) {
     // Hosted inference latency spikes now and then, so each model gets a short window before the next one.
     for (const modelName of [backboard.modelLabel(), FAST_MODEL]) {
       try {
@@ -47,8 +48,12 @@ async function generate(prompt, system) {
       } catch (e) { console.warn(`Backboard ${modelName} failed:`, e.message); }
     }
   }
-  if (TINKER_KEY && TINKER_PATH) {
-    try { return { text: await viaTinker(prompt, system), engine: `tinker:${TINKER_LABEL}` }; }
+  if (TINKER_KEY && TINKER_PATH && await credits.allow('tinker_calls', 1, family)) {
+    try {
+      const text = await viaTinker(prompt, system);
+      credits.record(family?.id, 'tinker_calls', 1);
+      return { text, engine: `tinker:${TINKER_LABEL}` };
+    }
     catch (e) { console.warn('Tinker failed:', e.message); }
   }
   return null;
@@ -123,7 +128,7 @@ function rankMemories(question, memories, limit = 6) {
 }
 
 // ── Public API ─────────────────────────────────────────────────
-async function extractMemory(transcription) {
+async function extractMemory(transcription, family = null) {
   const prompt = `You are analyzing a voice memo from an elderly person sharing a memory.
 
 RAW TRANSCRIPTION:
@@ -140,7 +145,7 @@ Respond ONLY with valid JSON (no markdown):
   "sentiment": "warm | happy | nostalgic | bittersweet | serious"
 }`;
 
-  const out = await generate(prompt);
+  const out = await generate(prompt, null, family);
   if (out?.text) {
     const match = out.text.match(/\{[\s\S]*\}/);
     if (match) {
@@ -153,7 +158,7 @@ Respond ONLY with valid JSON (no markdown):
   return { ...heuristicExtract(transcription), engine: 'heuristic' };
 }
 
-async function answerQuestion(question, memories, personName = 'them') {
+async function answerQuestion(question, memories, personName = 'them', family = null) {
   const relevant = rankMemories(question, memories);
   const sources = relevant.map(m => ({ id: m.id, title: m.title }));
 
@@ -172,7 +177,7 @@ that ${personName} hasn't recorded that yet and suggest asking them about it.
 MEMORIES:
 ${context}`;
 
-  const out = await generate(`Question: ${question}`, system);
+  const out = await generate(`Question: ${question}`, system, family);
   if (out?.text) return { answer: out.text, sources, engine: out.engine };
 
   // No model: answer by quoting the most relevant memory verbatim — still truthful and useful.
@@ -186,10 +191,10 @@ ${context}`;
   };
 }
 
-async function generateLifeSummary(memories, personName = 'them') {
+async function generateLifeSummary(memories, personName = 'them', family = null) {
   if (!memories.length) return { summary: '', engine: 'none' };
   const list = memories.slice(0, 30).map(m => `- ${m.title}${m.memory_date ? ` (${m.memory_date})` : ''}: ${(m.content || '').slice(0, 200)}`).join('\n');
-  const out = await generate(`These are memories recorded by ${personName}:\n${list}\n\nWrite a warm, honest two-paragraph tribute (max 120 words) to ${personName} that draws only on these memories. No invented facts.`);
+  const out = await generate(`These are memories recorded by ${personName}:\n${list}\n\nWrite a warm, honest two-paragraph tribute (max 120 words) to ${personName} that draws only on these memories. No invented facts.`, null, family);
   if (out?.text) return { summary: out.text, engine: out.engine };
 
   const cats = {};

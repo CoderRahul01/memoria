@@ -177,6 +177,8 @@ function renderPlan() {
        <button class="pill pill-accent" data-upgrade>Lifetime · ${esc(f.price)}</button>`;
   $('#voiceLock').hidden = life;
   $('#cloneArea').hidden = !life;
+  $('.reading-voices').hidden = !life;
+  renderVoiceStatus();
 }
 
 // ── Presence (powers the live view in the founder dashboard) ───
@@ -509,6 +511,7 @@ async function startRecording() {
 }
 
 function stopRecording() {
+  rec.stoppedAt = Date.now();
   rec.media?.stop();
   try { rec.sr?.stop(); } catch {}
   rec.sr = null;
@@ -582,6 +585,7 @@ $('#saveBtn').addEventListener('click', async () => {
       form.append('audio', rec.blob, `memory.${rec.blob.type.includes('mp4') ? 'm4a' : 'webm'}`);
       form.append('transcription', text);
       form.append('person_name', state.person.name);
+      form.append('duration', String(Math.round((rec.stoppedAt - rec.start) / 1000) || ''));
       data = await api('/api/record', { method: 'POST', body: form });
     } else {
       data = await api('/api/memories', { method: 'POST', body: { content: text, person_name: state.person.name } });
@@ -723,7 +727,7 @@ function renderVoiceStatus() {
   const el = $('#voiceStatus');
   if (!el || !state.person) return;
   const preset = state.voices?.presets?.find(v => v.id === state.person.voice_id);
-  if (!state.health?.voice) el.textContent = 'Stories are read out loud by your device’s built-in voice.';
+  if (!state.health?.voice || state.family?.plan !== 'lifetime') el.innerHTML = 'Stories are read out loud by your device’s own voice. With Lifetime they’re read in a warm, natural voice, or in theirs.';
   else if (state.person.voice_id && !preset) el.innerHTML = `<b>●</b> ${esc(state.person.name)}’s own voice is ready. Every story will play in it.`;
   else el.textContent = `Stories are read in the “${preset?.name || state.voices?.presets?.[0]?.name || 'gentle'}” reading voice for now.`;
   updateCloneBtn();

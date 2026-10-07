@@ -16,6 +16,7 @@ const gemma = require('./gemma');
 const elevenlabs = require('./elevenlabs');
 const backboard = require('./backboard');
 const billing = require('./billing');
+const credits = require('./credits');
 const { configured } = require('./env');
 
 const app = express();
@@ -190,12 +191,26 @@ async function voiceFor(familyId, personName) {
   return person?.voice_id || null;
 }
 
-function queueTTS(memory) {
-  if (!elevenlabs.enabled()) return;
-  voiceFor(memory.family_id, memory.person_name)
-    .then(v => elevenlabs.textToSpeech(memory.content, v, memory.id))
-    .then(url => url && db.updateMemoryTTS(memory.id, url))
-    .catch(e => console.warn('TTS failed:', e.message));
+// Natural read-aloud voice is a Lifetime benefit; free families hear their device's voice.
+async function speakable(family, text) {
+  if (!elevenlabs.enabled() || family.plan !== 'lifetime') return false;
+  if (await credits.allow('tts_chars', text.length, family)) return true;
+  db.logEvent(family.id, 'credit_fallback', { kind: 'tts_chars' });
+  return false;
+}
+
+async function tts(family, text, voiceId, key) {
+  const url = await elevenlabs.textToSpeech(text, voiceId, key);
+  if (url) credits.record(family.id, 'tts_chars', Math.min(text.length, 2500));
+  return url;
+}
+
+async function queueTTS(family, memory) {
+  try {
+    if (!await speakable(family, memory.content)) return;
+    const url = await tts(family, memory.content, await voiceFor(family.id, memory.person_name), memory.id);
+    if (url) await db.updateMemoryTTS(memory.id, url);
+  } catch (e) { console.warn('TTS failed:', e.message); }
 }
 
 async function checkMemoryLimit(family) {
@@ -209,15 +224,15 @@ async function createMemory(family, content, person_name, source) {
   aiBudget(family);
   await db.savePerson(family.id, { name: person_name });
   const t0 = Date.now();
-  const extracted = await gemma.extractMemory(content);
+  const extracted = await gemma.extractMemory(content, family);
   const memory = await db.saveMemory(family.id, {
     person_name, content, source,
     title: extracted.title, tags: extracted.tags, category: extracted.category,
     memory_date: extracted.memory_date, people: extracted.people_mentioned
   });
   db.logEvent(family.id, 'memory_saved', { source, engine: extracted.engine, chars: content.length }, Date.now() - t0);
-  queueTTS(memory);
-  syncToBackboard(memory);
+  queueTTS(family, memory);
+  if (await credits.allow('backboard', 0, family)) syncToBackboard(memory);
   return { ...memory, summary: extracted.summary };
 }
 
@@ -289,13 +304,20 @@ app.post('/api/record', upload.single('audio'), wrap(async (req, res) => {
     const browserText = req.body.transcription?.trim();
     let transcription = null;
     const t0 = Date.now();
+    // Length of the recording: the browser reports it; otherwise estimate from size (~24 kbps Opus).
+    const minutes = Math.max(0.1, Math.min(30, (Number(req.body.duration) || req.file?.size / 3000 || 0) / 60));
     if (req.file && elevenlabs.enabled()) {
-      transcription = await elevenlabs.transcribeAudio(req.file).catch(e => (console.warn('STT:', e.message), null));
-      db.logEvent(req.family.id, 'transcribed', { bytes: req.file.size }, Date.now() - t0, !!transcription);
+      if (await credits.allow('stt_minutes', minutes, req.family)) {
+        transcription = await elevenlabs.transcribeAudio(req.file).catch(e => (console.warn('STT:', e.message), null));
+        if (transcription) credits.record(req.family.id, 'stt_minutes', minutes);
+        db.logEvent(req.family.id, 'transcribed', { minutes: Math.round(minutes * 10) / 10 }, Date.now() - t0, !!transcription);
+      } else {
+        db.logEvent(req.family.id, 'credit_fallback', { kind: 'stt_minutes' });
+      }
     }
     transcription = transcription || browserText;
     if (!transcription) {
-      throw httpError(422, 'We couldn’t hear any words in that recording. Try again a little closer, or type the memory instead.');
+      throw httpError(422, 'We couldn’t write out that recording right now. Please type the story in the box, then keep it.');
     }
     const memory = await createMemory(req.family, transcription.slice(0, 8000), req.body.person_name, 'voice');
     res.json({ success: true, memory });
@@ -316,7 +338,7 @@ app.post('/api/chat', wrap(async (req, res) => {
   const t0 = Date.now();
   let result = null;
 
-  if (backboard.enabled() && memories.length) {
+  if (backboard.enabled() && memories.length && await credits.allow('backboard', 0, req.family)) {
     try {
       const assistantId = await assistantFor(req.family.id, person_name);
       const local = gemma.rankMemories(q, memories, 3);
@@ -332,7 +354,7 @@ app.post('/api/chat', wrap(async (req, res) => {
     }
   }
   if (!result) {
-    const r = await gemma.answerQuestion(q, memories, person_name);
+    const r = await gemma.answerQuestion(q, memories, person_name, req.family);
     result = { answer: r.answer, engine: r.engine, sources: r.sources.map(s => memories.find(m => m.id === s.id)).filter(Boolean) };
   }
 
@@ -343,9 +365,9 @@ app.post('/api/chat', wrap(async (req, res) => {
   db.logEvent(req.family.id, 'question_asked', { engine: result.engine, sources: sources.length, grounded }, Date.now() - t0);
 
   let tts_url = null;
-  if (speak && elevenlabs.enabled() && sources.length) {
+  if (speak && grounded && await speakable(req.family, result.answer)) {
     const v = await voiceFor(req.family.id, person_name);
-    tts_url = await elevenlabs.textToSpeech(result.answer, v, `chat_${crypto.randomUUID()}`).catch(() => null);
+    tts_url = await tts(req.family, result.answer, v, `chat_${crypto.randomUUID()}`).catch(() => null);
   }
   res.json({ answer: result.answer, sources: grounded ? sources : [], grounded, tts_url });
 }));
@@ -356,8 +378,8 @@ app.post('/api/speak', wrap(async (req, res) => {
   if (!memory) throw httpError(404, 'Memory not found');
   db.logEvent(req.family.id, 'listen', {});
   if (memory.tts_url && fs.existsSync(path.join(__dirname, '../public', memory.tts_url))) return res.json({ tts_url: memory.tts_url });
-  if (!elevenlabs.enabled()) return res.json({ tts_url: null });
-  const url = await elevenlabs.textToSpeech(memory.content, await voiceFor(req.family.id, memory.person_name), memory.id);
+  if (!await speakable(req.family, memory.content)) return res.json({ tts_url: null });
+  const url = await tts(req.family, memory.content, await voiceFor(req.family.id, memory.person_name), memory.id);
   if (url) await db.updateMemoryTTS(memory.id, url);
   res.json({ tts_url: url });
 }));
@@ -381,10 +403,14 @@ app.post('/api/clone-voice', upload.array('samples', 10), wrap(async (req, res) 
     const { person_name } = req.body;
     if (!person_name) throw httpError(400, 'Choose whose voice this is.');
     if (!req.files?.length) throw httpError(400, 'Add at least one recording of their voice.');
+    if (!await credits.allow('voice_slots', 1, req.family)) {
+      db.logEvent(req.family.id, 'credit_fallback', { kind: 'voice_slots' });
+      throw httpError(409, 'Voice creation is fully booked right now. We’ve been notified and will open more space soon.');
+    }
     const t0 = Date.now();
     const voice_id = await elevenlabs.cloneVoice(`${person_name} · ${req.family.id.slice(0, 8)}`, `Voice of ${person_name}, recorded by family in Memoria`, req.files);
     await db.savePerson(req.family.id, { name: person_name });
-    await db.updatePersonVoiceId(req.family.id, person_name, voice_id);
+    await db.updatePersonVoiceId(req.family.id, person_name, voice_id, true);
     db.logEvent(req.family.id, 'voice_cloned', { samples: req.files.length }, Date.now() - t0);
     res.json({ success: true, voice_id });
   } finally {
@@ -397,7 +423,7 @@ app.get('/api/summary/:person_name', wrap(async (req, res) => {
   const memories = await db.getAllMemories(req.family.id, req.params.person_name);
   if (memories.length) aiBudget(req.family);
   const t0 = Date.now();
-  const { summary, engine } = await gemma.generateLifeSummary(memories, req.params.person_name);
+  const { summary, engine } = await gemma.generateLifeSummary(memories, req.params.person_name, req.family);
   if (memories.length) db.logEvent(req.family.id, 'tribute', { engine }, Date.now() - t0);
   res.json({ summary, memory_count: memories.length });
 }));
@@ -417,6 +443,7 @@ db.initDB().then(async () => {
   app.listen(PORT, async () => {
     const ai = await gemma.checkHealth();
     if (backboard.enabled()) { await backboard.discoverModel(); backboard.warm(); }
+    credits.start();
     console.log(`\n🧠 Memoria running at http://localhost:${PORT}`);
     console.log(`🤖 AI engine: ${ai.engine}`);
     console.log(`🎙️  ElevenLabs: ${elevenlabs.enabled() ? 'on' : 'off (browser speech fallback)'}`);

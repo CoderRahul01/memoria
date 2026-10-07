@@ -40,3 +40,16 @@ services:
         sync: false
       - key: PUBLIC_URL
         value: https://memoria-family.vercel.app
+      # Credit guard — monthly budgets (10% held back for Lifetime families)
+      - key: ELEVENLABS_MONTHLY_CHARS
+        value: "100000"
+      - key: SCRIBE_MONTHLY_MINUTES
+        value: "300"
+      - key: ELEVENLABS_VOICE_SLOTS
+        value: "25"
+      - key: TINKER_MONTHLY_CALLS
+        value: "400"
+      - key: BACKBOARD_FREE_FLOOR_USD
+        value: "1.5"
+      - key: BACKBOARD_HARD_FLOOR_USD
+        value: "0.3"
