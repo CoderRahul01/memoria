@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const db = require('./db');
 const gemma = require('./gemma');
 const elevenlabs = require('./elevenlabs');
-const backboard = require('./backboard');
+const openrouter = require('./openrouter');
 const billing = require('./billing');
 const credits = require('./credits');
 const recordings = require('./recordings');
@@ -190,40 +190,6 @@ app.post('/api/billing/checkout', wrap(async (req, res) => {
   res.json({ url: billing.checkoutUrl(req.family) });
 }));
 
-// ── Backboard memory sync ─────────────────────────────────────
-const assistantPromises = new Map();
-const synced = new Set();
-function assistantFor(familyId, personName) {
-  if (!backboard.enabled()) return Promise.resolve(null);
-  const key = `${familyId}:${personName}`;
-  if (!assistantPromises.has(key)) {
-    assistantPromises.set(key, (async () => {
-      const person = await db.getPerson(familyId, personName) || await db.savePerson(familyId, { name: personName });
-      if (person.backboard_assistant_id) return person.backboard_assistant_id;
-      const id = await backboard.ensureAssistant(person);
-      await db.updatePersonAssistant(familyId, personName, id);
-      for (const m of (await db.getAllMemories(familyId, personName)).reverse()) {
-        if (synced.has(m.id)) continue;
-        synced.add(m.id);
-        await backboard.addMemory(id, m).catch(e => { synced.delete(m.id); console.warn('Backboard backfill:', e.message); });
-      }
-      return id;
-    })().catch(e => { assistantPromises.delete(key); throw e; }));
-  }
-  return assistantPromises.get(key);
-}
-
-function syncToBackboard(memory) {
-  if (!backboard.enabled()) return;
-  assistantFor(memory.family_id, memory.person_name)
-    .then(id => {
-      if (!id || synced.has(memory.id)) return;
-      synced.add(memory.id);
-      return backboard.addMemory(id, memory);
-    })
-    .catch(e => { synced.delete(memory.id); console.warn('Backboard sync failed:', e.message); });
-}
-
 async function checkMemoryLimit(family) {
   const lim = limitsFor(family);
   if (lim.memories && await db.countMemories(family.id) >= lim.memories) {
@@ -242,7 +208,6 @@ async function createMemory(family, content, person_name, source) {
     memory_date: extracted.memory_date, people: extracted.people_mentioned
   });
   db.logEvent(family.id, 'memory_saved', { source, engine: extracted.engine, chars: content.length }, Date.now() - t0);
-  if (await credits.allow('backboard', 0, family)) syncToBackboard(memory);
   return { ...memory, summary: extracted.summary };
 }
 
@@ -308,12 +273,6 @@ app.patch('/api/memories/:id', wrap(async (req, res) => {
   const memory_date = req.body.memory_date === undefined ? undefined : (clean(req.body.memory_date, 40) || null);
   await db.updateMemory(req.family.id, memory.id, { title, content, memory_date });
   db.logEvent(req.family.id, 'memory_edited', { fields: Object.keys(req.body).filter(k => ['title', 'content', 'memory_date'].includes(k)) });
-  // Keep the family's memory assistant in step with the correction.
-  if (content && content !== memory.content && backboard.enabled()) {
-    assistantFor(req.family.id, memory.person_name)
-      .then(id => id && backboard.addMemory(id, { ...memory, title: title || memory.title, content: `Corrected by the family: ${content}`, memory_date: memory_date === undefined ? memory.memory_date : memory_date }))
-      .catch(e => console.warn('Backboard correction:', e.message));
-  }
   res.json(await db.getMemory(req.family.id, memory.id));
 }));
 
@@ -388,27 +347,9 @@ app.post('/api/chat', wrap(async (req, res) => {
   const q = question.trim().slice(0, 400);
   const memories = await db.getAllMemories(req.family.id, person_name);
   const t0 = Date.now();
-  let result = null;
-
-  if (backboard.enabled() && memories.length && await credits.allow('backboard', 0, req.family)) {
-    try {
-      const assistantId = await assistantFor(req.family.id, person_name);
-      const local = gemma.rankMemories(q, memories, 3);
-      const context = local.map(m => `- ${m.title}${m.memory_date ? ` (${m.memory_date})` : ''}: ${m.content}`).join('\n');
-      const r = await backboard.ask(assistantId, person_name, q, context, 15_000);
-      if (r.text) {
-        const hits = memories.filter(m => r.retrieved.some(t => t.includes(m.title) || t.includes(m.content.slice(0, 60))));
-        const picked = [...new Map([...local.slice(0, 2), ...hits].map(m => [m.id, m])).values()].slice(0, 3);
-        result = { answer: r.text, sources: picked, engine: r.engine };
-      }
-    } catch (e) {
-      console.warn('Backboard ask failed, falling back:', e.message);
-    }
-  }
-  if (!result) {
-    const r = await gemma.answerQuestion(q, memories, person_name, req.family);
-    result = { answer: r.answer, engine: r.engine, sources: r.sources.map(s => memories.find(m => m.id === s.id)).filter(Boolean) };
-  }
+  // Memories are ranked locally and handed to the model, so the answer only draws on what they said.
+  const r = await gemma.answerQuestion(q, memories, person_name, req.family);
+  const result = { answer: r.answer, engine: r.engine, sources: r.sources.map(s => memories.find(m => m.id === s.id)).filter(Boolean) };
 
   // Each source carries the exact words it came from, so families can check the answer.
   const picked = gemma.rankMemories(q, result.sources, 3).concat(result.sources).filter((m, i, a) => a.findIndex(x => x.id === m.id) === i).slice(0, 3);
@@ -485,8 +426,8 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../public/index.ht
 
 db.initDB().then(async () => {
   app.listen(PORT, async () => {
+    if (openrouter.enabled()) await openrouter.discoverModel();
     const ai = await gemma.checkHealth();
-    if (backboard.enabled()) { await backboard.discoverModel(); backboard.warm(); }
     credits.start();
     console.log(`\n🧠 Memoria running at http://localhost:${PORT}`);
     console.log(`🤖 AI engine: ${ai.engine}`);

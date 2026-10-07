@@ -154,7 +154,6 @@ const savePerson = (familyId, { name, relationship }) => one(
   `INSERT INTO persons (family_id, name, relationship) VALUES ($1,$2,$3)
    ON CONFLICT (family_id, name) DO UPDATE SET relationship = COALESCE(EXCLUDED.relationship, persons.relationship) RETURNING *`,
   [familyId, name, relationship || null]);
-const updatePersonAssistant = (familyId, name, id) => q('UPDATE persons SET backboard_assistant_id = $3 WHERE family_id = $1 AND name = $2', [familyId, name, id]);
 const updatePersonVoiceId = (familyId, name, id, cloned = false) => q('UPDATE persons SET voice_id = $3, voice_cloned = $4 WHERE family_id = $1 AND name = $2', [familyId, name, id, cloned]);
 
 // ── Memories ───────────────────────────────────
@@ -200,7 +199,7 @@ function logEvent(familyId, name, props = {}, ms = null, ok = true) {
 module.exports = {
   pool, q, one, initDB,
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime,
-  getAllPersons, getPerson, savePerson, updatePersonAssistant, updatePersonVoiceId,
+  getAllPersons, getPerson, savePerson, updatePersonVoiceId,
   saveMemory, updateMemory, getMemory, getAllMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
   heartbeat, logEvent, setCredit
 };

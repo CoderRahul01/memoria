@@ -10,10 +10,10 @@ require('dotenv').config();
 const { spawnSync } = require('child_process');
 
 const ENGINES = {
-  'gemma-31b': { BACKBOARD_MODEL: 'google/gemma-4-31b-it', BACKBOARD_FAST_MODEL: 'google/gemma-4-31b-it' },
-  'gemma-26b': { BACKBOARD_MODEL: 'google/gemma-4-26b-a4b-it', BACKBOARD_FAST_MODEL: 'google/gemma-4-26b-a4b-it' },
-  tinker: { BACKBOARD_API_KEY: '' },
-  rules: { BACKBOARD_API_KEY: '', TINKER_API_KEY: '' }
+  'gemma-31b': { OPENROUTER_MODEL: 'google/gemma-4-31b-it:free', OPENROUTER_FAST_MODEL: 'google/gemma-4-31b-it:free', OPENROUTER_BACKUP_MODEL: 'google/gemma-4-31b-it:free' },
+  'gemma-26b': { OPENROUTER_MODEL: 'google/gemma-4-26b-a4b-it:free', OPENROUTER_FAST_MODEL: 'google/gemma-4-26b-a4b-it:free', OPENROUTER_BACKUP_MODEL: 'google/gemma-4-26b-a4b-it:free' },
+  tinker: { OPENROUTER_API_KEY: '' },
+  rules: { OPENROUTER_API_KEY: '', TINKER_API_KEY: '' }
 };
 
 const STORIES = [
