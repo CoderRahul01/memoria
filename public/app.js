@@ -897,6 +897,25 @@ async function waitForLifetime() {
   toast('Payment received. Lifetime will switch on in a minute or two.');
 }
 
+// ── Landing demo video: appears once the file exists, plays only while on screen ──
+(function demoVideo() {
+  const v = $('#demoVideo'), section = $('#demo'), btn = $('#demoSound');
+  if (!v) return;
+  v.addEventListener('loadedmetadata', () => { section.hidden = false; }, { once: true });
+  v.addEventListener('error', () => { section.hidden = true; $('#demoLink')?.setAttribute('href', '#how'); });
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) v.play().catch(() => {}); else v.pause();
+    }, { threshold: 0.5 }).observe(v);
+  }
+  btn.addEventListener('click', () => {
+    v.muted = !v.muted;
+    if (!v.muted) { v.currentTime = 0; v.play().catch(() => {}); track('demo_sound'); }
+    btn.textContent = v.muted ? 'Turn sound on' : 'Sound on';
+    btn.setAttribute('aria-pressed', String(!v.muted));
+  });
+})();
+
 // ── Reveal on scroll ───────────────────────────────────────────
 let revealer;
 function observeReveals() {
