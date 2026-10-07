@@ -1,13 +1,13 @@
 /**
  * Open-weight model layer — no Google key, no local runtime. Engines tried in order:
- *   1. Gemma 4 through Backboard (OpenRouter-hosted, open weights)   BACKBOARD_API_KEY
+ *   1. Gemma 4 through OpenRouter (free tier, open weights)           OPENROUTER_API_KEY
  *   2. An open model checkpoint served by Tinker                     TINKER_API_KEY + TINKER_MODEL_PATH
  *   3. Built-in heuristics (no AI, but never breaks)
  * Every function returns a useful result and reports which engine produced it.
  */
 
 const { configured } = require('./env');
-const backboard = require('./backboard');
+const openrouter = require('./openrouter');
 const credits = require('./credits');
 
 const TINKER_KEY = configured('TINKER_API_KEY');
@@ -15,7 +15,6 @@ const TINKER_BASE = process.env.TINKER_BASE_URL || 'https://tinker.thinkingmachi
 // Tinker's OpenAI-compatible API serves Tinker checkpoints (tinker://…/sampler_weights/…), not bare model names.
 const TINKER_PATH = (configured('TINKER_MODEL_PATH') || '').startsWith('tinker://') ? configured('TINKER_MODEL_PATH') : null;
 const TINKER_LABEL = process.env.TINKER_MODEL || 'Qwen/Qwen3.6-35B-A3B';
-const FAST_MODEL = process.env.BACKBOARD_FAST_MODEL || 'google/gemma-4-26b-a4b-it';
 
 async function viaTinker(prompt, system) {
   const messages = [];
@@ -39,14 +38,9 @@ async function viaTinker(prompt, system) {
 
 /** Returns { text, engine } or null when no model is reachable. */
 async function generate(prompt, system, family = null) {
-  if (backboard.enabled() && await credits.allow('backboard', 0, family)) {
-    // Hosted inference latency spikes now and then, so each model gets a short window before the next one.
-    for (const modelName of [backboard.modelLabel(), FAST_MODEL]) {
-      try {
-        const text = await backboard.complete(prompt, system, { modelName, timeoutMs: 12_000 });
-        if (text) return { text, engine: `backboard:${modelName}` };
-      } catch (e) { console.warn(`Backboard ${modelName} failed:`, e.message); }
-    }
+  if (openrouter.enabled() && await credits.allow('openrouter', 1, family)) {
+    const out = await openrouter.complete(prompt, system);
+    if (out) return out;
   }
   if (TINKER_KEY && TINKER_PATH && await credits.allow('tinker_calls', 1, family)) {
     try {
@@ -237,10 +231,10 @@ async function generateLifeSummary(memories, personName = 'them', family = null)
 }
 
 async function checkHealth() {
-  const bb = backboard.enabled(), tinker = !!(TINKER_KEY && TINKER_PATH);
+  const or = openrouter.enabled(), tinker = !!(TINKER_KEY && TINKER_PATH);
   return {
-    engine: bb ? `backboard:${backboard.modelLabel()}` : tinker ? `tinker:${TINKER_LABEL}` : 'heuristic',
-    backboard: bb,
+    engine: or ? `openrouter:${openrouter.modelLabel()}` : tinker ? `tinker:${TINKER_LABEL}` : 'heuristic',
+    openrouter: or,
     tinker,
     tinkerModel: tinker ? TINKER_LABEL : null
   };

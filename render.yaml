@@ -11,13 +11,13 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
-      # Backboard — Gemma 4 (open weights) + per-person memory for "Ask" ($5 partner credit)
-      - key: BACKBOARD_API_KEY
+      # OpenRouter — Gemma 4 (open weights) on the free tier; 26B and Nemotron as fallbacks
+      - key: OPENROUTER_API_KEY
         sync: false
-      - key: BACKBOARD_LLM_PROVIDER
-        value: openrouter
-      - key: BACKBOARD_MODEL
-        value: google/gemma-4-31b-it
+      - key: OPENROUTER_MODEL
+        value: google/gemma-4-31b-it:free
+      - key: OPENROUTER_FAST_MODEL
+        value: google/gemma-4-26b-a4b-it:free
       # ElevenLabs — Scribe transcription, TTS, voice cloning ($100 credit)
       - key: ELEVENLABS_API_KEY
         sync: false
@@ -49,7 +49,3 @@ services:
         value: "25"
       - key: TINKER_MONTHLY_CALLS
         value: "400"
-      - key: BACKBOARD_FREE_FLOOR_USD
-        value: "1.5"
-      - key: BACKBOARD_HARD_FLOOR_USD
-        value: "0.3"

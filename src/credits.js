@@ -2,12 +2,12 @@
  * Credit guard — makes sure Memoria never runs dry on a partner's credits.
  *
  * Every paid call is written to credit_ledger. Before a call, `allow()` checks the
- * month's usage against a budget (env-configurable, with a safety reserve) and the
- * live Backboard balance. Lifetime families are served first; free families fall
+ * month's usage against a budget (env-configurable, with a safety reserve) and
+ * OpenRouter's free-model requests left today. Lifetime families are served first; free families fall
  * back to the browser transcript or the backup model, and keep the text if storage is nearly full.
  */
 const db = require('./db');
-const { configured } = require('./env');
+const openrouter = require('./openrouter');
 
 const num = (name, fallback) => {
   const v = Number(process.env[name]);
@@ -20,22 +20,16 @@ const BUDGET = {
   storage_mb: num('NEON_STORAGE_MB', 1024)               // Neon branch size limit; recordings live here
 };
 const RESERVE = 0.1; // keep 10% of every monthly budget back for paying families
-const BACKBOARD_FREE_FLOOR = num('BACKBOARD_FREE_FLOOR_USD', 1.5);   // below this, free families use the backup model
-const BACKBOARD_HARD_FLOOR = num('BACKBOARD_HARD_FLOOR_USD', 0.3);   // below this, nobody uses Backboard
 
-let backboardBalance = null; // USD, refreshed every few minutes
-let backboardCheckedAt = 0;
+let freeToday = null; // { used, limit, remaining } for OpenRouter free models, refreshed every few minutes
+let freeCheckedAt = 0;
 
-async function refreshBackboard() {
-  const key = configured('BACKBOARD_API_KEY');
-  if (!key) return null;
-  try {
-    const res = await fetch('https://app.backboard.io/api/billing/balance', { headers: { 'X-API-Key': key }, signal: AbortSignal.timeout(8000) });
-    if (res.ok) backboardBalance = (await res.json()).balance_usd ?? backboardBalance;
-  } catch { /* keep the last known balance */ }
-  backboardCheckedAt = Date.now();
-  await db.setCredit('backboard', 'Backboard (Gemma 4)', backboardBalance, 'usd_left');
-  return backboardBalance;
+async function refreshOpenRouter() {
+  if (!openrouter.enabled()) return null;
+  freeToday = await openrouter.freeUsage() || freeToday;
+  freeCheckedAt = Date.now();
+  if (freeToday) await db.setCredit('openrouter', 'OpenRouter free models (requests left today)', freeToday.remaining, 'requests_left', freeToday.limit);
+  return freeToday;
 }
 
 async function monthUsage() {
@@ -49,11 +43,13 @@ async function monthUsage() {
 
 /** Is there room for `units` more of `kind` for this family? */
 async function allow(kind, units, family) {
-  if (kind === 'backboard') {
-    if (Date.now() - backboardCheckedAt > 5 * 60_000) await refreshBackboard();
-    if (backboardBalance == null) return true;
-    const floor = family?.plan === 'lifetime' ? BACKBOARD_HARD_FLOOR : BACKBOARD_FREE_FLOOR;
-    return backboardBalance > floor;
+  if (kind === 'openrouter') {
+    if (Date.now() - freeCheckedAt > 5 * 60_000) await refreshOpenRouter();
+    if (!freeToday?.limit) return true;
+    const ceiling = family?.plan === 'lifetime' ? freeToday.limit : freeToday.limit * (1 - RESERVE);
+    if (freeToday.used + units > ceiling) return false;
+    freeToday.used += units; // count it now; the next refresh brings the real number
+    return true;
   }
   const budget = BUDGET[kind];
   if (!budget) return true;
@@ -71,7 +67,8 @@ function record(familyId, kind, units, note = null) {
 async function snapshot() {
   const used = await monthUsage();
   await Promise.all([
-    refreshBackboard(),
+    refreshOpenRouter(),
+    db.q(`DELETE FROM credits WHERE provider = 'backboard'`).catch(() => {}),
     db.setCredit('elevenlabs_stt', 'ElevenLabs transcription (minutes this month)', BUDGET.stt_minutes - (used.stt_minutes || 0), 'minutes_left', BUDGET.stt_minutes),
     db.setCredit('neon_storage', 'Recording storage (database)', Math.round(BUDGET.storage_mb - (used.storage_mb || 0)), 'mb_left', BUDGET.storage_mb),
     db.setCredit('tinker', 'Tinker backup model (calls this month)', BUDGET.tinker_calls - (used.tinker_calls || 0), 'calls_left', BUDGET.tinker_calls)

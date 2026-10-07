@@ -21,7 +21,7 @@ and lets the whole family ask about it years from now, then hear them say the an
 
 | Part | What |
 |---|---|
-| Open models | Gemma 4 (31B, with 26B as a fast fallback) through Backboard, which also keeps each person's memory; a Qwen 3.6 checkpoint on Tinker as the backup model |
+| Open models | Gemma 4 (31B, with 26B as a fast fallback) on OpenRouter's free tier; a Qwen 3.6 checkpoint on Tinker as the backup model |
 | Transcription | ElevenLabs Scribe, word-level timestamps |
 | App | Node + Express on Render; static frontend on Vercel |
 | Data | Neon Postgres (families, stories, recordings, analytics events) |
