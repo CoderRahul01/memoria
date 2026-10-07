@@ -26,8 +26,9 @@ async function viaTinker(prompt, system) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${TINKER_KEY}`
     },
-    body: JSON.stringify({ model: TINKER_PATH, messages, temperature: 0.3, max_tokens: 700 }),
-    signal: AbortSignal.timeout(60_000)
+    // Qwen 3.6 reasons before answering, so leave room for the thinking tokens too.
+    body: JSON.stringify({ model: TINKER_PATH, messages, temperature: 0.3, max_tokens: 3000 }),
+    signal: AbortSignal.timeout(120_000)
   });
   if (!res.ok) throw new Error(`Tinker ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();

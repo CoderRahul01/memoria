@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://memoria-qlji.onrender.com/api/:path*" },
+    { "source": "/audio/:path*", "destination": "https://memoria-qlji.onrender.com/audio/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
