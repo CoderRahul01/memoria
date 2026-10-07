@@ -14,6 +14,7 @@ const TINKER_BASE = process.env.TINKER_BASE_URL || 'https://tinker.thinkingmachi
 // Tinker's OpenAI-compatible API serves Tinker checkpoints (tinker://…/sampler_weights/…), not bare model names.
 const TINKER_PATH = (configured('TINKER_MODEL_PATH') || '').startsWith('tinker://') ? configured('TINKER_MODEL_PATH') : null;
 const TINKER_LABEL = process.env.TINKER_MODEL || 'Qwen/Qwen3.6-35B-A3B';
+const FAST_MODEL = process.env.BACKBOARD_FAST_MODEL || 'google/gemma-4-26b-a4b-it';
 
 async function viaTinker(prompt, system) {
   const messages = [];
@@ -38,10 +39,13 @@ async function viaTinker(prompt, system) {
 /** Returns { text, engine } or null when no model is reachable. */
 async function generate(prompt, system) {
   if (backboard.enabled()) {
-    try {
-      const text = await backboard.complete(prompt, system);
-      if (text) return { text, engine: `backboard:${backboard.modelLabel()}` };
-    } catch (e) { console.warn('Backboard generate failed:', e.message); }
+    // Hosted inference latency spikes now and then, so each model gets a short window before the next one.
+    for (const modelName of [backboard.modelLabel(), FAST_MODEL]) {
+      try {
+        const text = await backboard.complete(prompt, system, { modelName, timeoutMs: 12_000 });
+        if (text) return { text, engine: `backboard:${modelName}` };
+      } catch (e) { console.warn(`Backboard ${modelName} failed:`, e.message); }
+    }
   }
   if (TINKER_KEY && TINKER_PATH) {
     try { return { text: await viaTinker(prompt, system), engine: `tinker:${TINKER_LABEL}` }; }
@@ -208,4 +212,19 @@ async function checkHealth() {
   };
 }
 
-module.exports = { extractMemory, answerQuestion, generateLifeSummary, checkHealth, rankMemories };
+/** The sentence(s) of a memory that best match a question — shown under answers as the exact words. */
+function excerpt(memory, question, max = 220) {
+  const q = new Set(keywords(question));
+  const sentences = (memory.content || '').split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (!sentences.length) return '';
+  let best = 0, bestScore = -1;
+  sentences.forEach((s, i) => {
+    const score = keywords(s).reduce((n, w) => n + (q.has(w) ? 1 : 0), 0);
+    if (score > bestScore) { bestScore = score; best = i; }
+  });
+  let text = sentences[best];
+  if (text.length < 90 && sentences[best + 1]) text += ' ' + sentences[best + 1];
+  return text.length > max ? text.slice(0, max - 1) + '…' : text;
+}
+
+module.exports = { extractMemory, answerQuestion, generateLifeSummary, checkHealth, rankMemories, excerpt };

@@ -1,172 +1,140 @@
 /**
- * Database layer using sql.js (pure JS/WASM SQLite — no native compilation needed)
+ * Postgres (Neon) data layer. Every row belongs to a family — a private space
+ * opened with a secret family key, so no two households ever see each other's memories.
  */
-const initSqlJs = require('sql.js');
-const path = require('path');
-const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
+const { Pool } = require('pg');
+const crypto = require('crypto');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_PATH = path.join(DATA_DIR, 'memoria.db');
-let db = null;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
+  max: 5
+});
 
-// ── Core helpers ───────────────────────────────
+const q = (sql, params = []) => pool.query(sql, params).then(r => r.rows);
+const one = (sql, params = []) => q(sql, params).then(r => r[0] || null);
+
+const hashKey = key => crypto.createHash('sha256').update(String(key)).digest('hex');
+
 async function initDB() {
-  const SQL = await initSqlJs();
-  if (fs.existsSync(DB_PATH)) {
-    db = new SQL.Database(fs.readFileSync(DB_PATH));
-  } else {
-    db = new SQL.Database();
-  }
-  setupSchema();
-  return db;
-}
-
-function persist() {
-  if (!db) return;
-  fs.writeFileSync(DB_PATH, Buffer.from(db.export()));
-}
-
-function run(sql, params = []) {
-  db.run(sql, params);
-  persist();
-}
-
-function getOne(sql, params = []) {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const row = stmt.step() ? stmt.getAsObject() : null;
-  stmt.free();
-  return row;
-}
-
-function getAll(sql, params = []) {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const rows = [];
-  while (stmt.step()) rows.push(stmt.getAsObject());
-  stmt.free();
-  return rows;
-}
-
-// ── Schema ─────────────────────────────────────
-function setupSchema() {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS memories (
-      id TEXT PRIMARY KEY,
-      person_name TEXT NOT NULL DEFAULT 'Grandpa',
-      title TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tags TEXT DEFAULT '[]',
-      category TEXT DEFAULT 'story',
-      audio_url TEXT,
-      tts_url TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      memory_date TEXT
-    )
-  `);
-
-  db.run(`
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS families (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      key_hash TEXT UNIQUE NOT NULL,
+      owner_name TEXT,
+      plan TEXT NOT NULL DEFAULT 'free',
+      paid_at TIMESTAMPTZ,
+      payment_id TEXT,
+      payer_email TEXT,
+      timezone TEXT,
+      language TEXT,
+      device TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS persons (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
       relationship TEXT,
       voice_id TEXT,
-      avatar_color TEXT DEFAULT '#F59E0B',
-      created_at TEXT DEFAULT (datetime('now'))
-    )
-  `);
-
-  // Migration: people mentioned in each memory (added after first release)
-  const cols = getAll('PRAGMA table_info(memories)').map(c => c.name);
-  if (!cols.includes('people')) db.run(`ALTER TABLE memories ADD COLUMN people TEXT DEFAULT '[]'`);
-  const pcols = getAll('PRAGMA table_info(persons)').map(c => c.name);
-  if (!pcols.includes('backboard_assistant_id')) db.run('ALTER TABLE persons ADD COLUMN backboard_assistant_id TEXT');
-
-  // Seed default person
-  const count = getOne('SELECT COUNT(*) as cnt FROM persons');
-  if (!count || count.cnt === 0) {
-    db.run(
-      `INSERT INTO persons (id, name, relationship, avatar_color) VALUES (?, ?, ?, ?)`,
-      [uuidv4(), 'Grandpa', 'grandfather', '#F59E0B']
+      backboard_assistant_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (family_id, name)
     );
-    persist();
-  }
+    CREATE TABLE IF NOT EXISTS memories (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+      person_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      tags JSONB NOT NULL DEFAULT '[]',
+      people JSONB NOT NULL DEFAULT '[]',
+      category TEXT NOT NULL DEFAULT 'story',
+      memory_date TEXT,
+      source TEXT NOT NULL DEFAULT 'typed',
+      tts_url TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS memories_family_person ON memories (family_id, person_name, created_at DESC);
+    CREATE TABLE IF NOT EXISTS events (
+      id BIGSERIAL PRIMARY KEY,
+      family_id UUID,
+      name TEXT NOT NULL,
+      props JSONB NOT NULL DEFAULT '{}',
+      ms INTEGER,
+      ok BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS events_created ON events (created_at DESC);
+    CREATE INDEX IF NOT EXISTS events_name_created ON events (name, created_at DESC);
+  `);
 }
 
-// ── Memory operations ──────────────────────────
-function saveMemory(data) {
-  const id = uuidv4();
-  const tags = JSON.stringify(data.tags || []);
-  run(
-    `INSERT INTO memories (id, person_name, title, content, tags, category, audio_url, tts_url, memory_date, people)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, data.person_name || 'Grandpa', data.title, data.content, tags,
-     data.category || 'story', data.audio_url || null, data.tts_url || null, data.memory_date || null,
-     JSON.stringify(data.people || [])]
+// ── Families ───────────────────────────────────
+async function createFamily({ owner_name, timezone, language, device } = {}) {
+  const key = crypto.randomBytes(18).toString('base64url');
+  const family = await one(
+    `INSERT INTO families (key_hash, owner_name, timezone, language, device) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [hashKey(key), owner_name || null, timezone || null, language || null, device || null]
   );
-  return getMemory(id);
+  return { key, family };
 }
 
-function getMemory(id) {
-  const m = getOne('SELECT * FROM memories WHERE id = ?', [id]);
-  if (m) { m.tags = JSON.parse(m.tags || '[]'); m.people = JSON.parse(m.people || '[]'); }
-  return m;
+const familyByKey = key => key ? one('SELECT * FROM families WHERE key_hash = $1', [hashKey(key)]) : null;
+const familyById = id => one('SELECT * FROM families WHERE id = $1', [id]);
+const touchFamily = id => q('UPDATE families SET last_seen = now() WHERE id = $1', [id]);
+const renameFamily = (id, owner_name) => one('UPDATE families SET owner_name = $2 WHERE id = $1 RETURNING *', [id, owner_name]);
+
+async function markLifetime(id, { payment_id, email }) {
+  return one(
+    `UPDATE families SET plan = 'lifetime', paid_at = COALESCE(paid_at, now()), payment_id = $2, payer_email = $3
+     WHERE id = $1 RETURNING *`, [id, payment_id || null, email || null]);
 }
 
-function getAllMemories(personName) {
-  const rows = personName
-    ? getAll('SELECT * FROM memories WHERE person_name = ? ORDER BY created_at DESC', [personName])
-    : getAll('SELECT * FROM memories ORDER BY created_at DESC');
-  return rows.map(m => ({ ...m, tags: JSON.parse(m.tags || '[]'), people: JSON.parse(m.people || '[]') }));
+// ── Persons ────────────────────────────────────
+async function getAllPersons(familyId) {
+  return q(`SELECT p.*, (SELECT COUNT(*)::int FROM memories m WHERE m.family_id = p.family_id AND m.person_name = p.name) AS memory_count
+            FROM persons p WHERE family_id = $1 ORDER BY created_at ASC`, [familyId]);
 }
+const getPerson = (familyId, name) => one('SELECT * FROM persons WHERE family_id = $1 AND name = $2', [familyId, name]);
+const savePerson = (familyId, { name, relationship }) => one(
+  `INSERT INTO persons (family_id, name, relationship) VALUES ($1,$2,$3)
+   ON CONFLICT (family_id, name) DO UPDATE SET relationship = COALESCE(EXCLUDED.relationship, persons.relationship) RETURNING *`,
+  [familyId, name, relationship || null]);
+const updatePersonAssistant = (familyId, name, id) => q('UPDATE persons SET backboard_assistant_id = $3 WHERE family_id = $1 AND name = $2', [familyId, name, id]);
+const updatePersonVoiceId = (familyId, name, id) => q('UPDATE persons SET voice_id = $3 WHERE family_id = $1 AND name = $2', [familyId, name, id]);
 
-function searchMemories(query, personName) {
-  const q = `%${query}%`;
-  const rows = personName
-    ? getAll(`SELECT * FROM memories WHERE person_name = ? AND (title LIKE ? OR content LIKE ? OR tags LIKE ?) ORDER BY created_at DESC`, [personName, q, q, q])
-    : getAll(`SELECT * FROM memories WHERE title LIKE ? OR content LIKE ? OR tags LIKE ? ORDER BY created_at DESC`, [q, q, q]);
-  return rows.map(m => ({ ...m, tags: JSON.parse(m.tags || '[]'), people: JSON.parse(m.people || '[]') }));
+// ── Memories ───────────────────────────────────
+const saveMemory = (familyId, d) => one(
+  `INSERT INTO memories (family_id, person_name, title, content, tags, people, category, memory_date, source)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+  [familyId, d.person_name, d.title, d.content, JSON.stringify(d.tags || []), JSON.stringify(d.people || []),
+   d.category || 'story', d.memory_date || null, d.source || 'typed']);
+
+const getMemory = (familyId, id) => one('SELECT * FROM memories WHERE family_id = $1 AND id = $2', [familyId, id]).catch(() => null);
+const getAllMemories = (familyId, personName) =>
+  q('SELECT * FROM memories WHERE family_id = $1 AND person_name = $2 ORDER BY created_at DESC', [familyId, personName]);
+const countMemories = familyId => one('SELECT COUNT(*)::int AS n FROM memories WHERE family_id = $1', [familyId]).then(r => r.n);
+
+function searchMemories(familyId, query, personName) {
+  const like = `%${query}%`;
+  return q(`SELECT * FROM memories WHERE family_id = $1 AND person_name = $2
+            AND (title ILIKE $3 OR content ILIKE $3 OR tags::text ILIKE $3) ORDER BY created_at DESC`, [familyId, personName, like]);
 }
+const deleteMemory = (familyId, id) => q('DELETE FROM memories WHERE family_id = $1 AND id = $2', [familyId, id]);
+const updateMemoryTTS = (id, url) => q('UPDATE memories SET tts_url = $2 WHERE id = $1', [id, url]);
 
-function deleteMemory(id) {
-  run('DELETE FROM memories WHERE id = ?', [id]);
-}
-
-function updateMemoryTTS(id, tts_url) {
-  run('UPDATE memories SET tts_url = ? WHERE id = ?', [tts_url, id]);
-}
-
-// ── Person operations ──────────────────────────
-function getAllPersons() {
-  return getAll('SELECT * FROM persons ORDER BY created_at ASC');
-}
-
-function getPerson(name) {
-  return getOne('SELECT * FROM persons WHERE name = ?', [name]);
-}
-
-function savePerson(data) {
-  const id = uuidv4();
-  run(
-    `INSERT OR REPLACE INTO persons (id, name, relationship, voice_id, avatar_color)
-     VALUES (?, ?, ?, ?, ?)`,
-    [id, data.name, data.relationship || null, data.voice_id || null, data.avatar_color || '#F59E0B']
-  );
-  return getOne('SELECT * FROM persons WHERE name = ?', [data.name]);
-}
-
-function updatePersonAssistant(name, assistant_id) {
-  run('UPDATE persons SET backboard_assistant_id = ? WHERE name = ?', [assistant_id, name]);
-}
-
-function updatePersonVoiceId(name, voice_id) {
-  run('UPDATE persons SET voice_id = ? WHERE name = ?', [voice_id, name]);
+// ── Events (analytics) ─────────────────────────
+function logEvent(familyId, name, props = {}, ms = null, ok = true) {
+  return q('INSERT INTO events (family_id, name, props, ms, ok) VALUES ($1,$2,$3,$4,$5)',
+    [familyId || null, name, JSON.stringify(props), ms == null ? null : Math.round(ms), ok]).catch(e => console.warn('event:', e.message));
 }
 
 module.exports = {
-  initDB,
-  saveMemory, getMemory, getAllMemories, searchMemories, updateMemoryTTS, deleteMemory,
-  getAllPersons, getPerson, savePerson, updatePersonVoiceId, updatePersonAssistant
+  pool, q, one, initDB,
+  createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime,
+  getAllPersons, getPerson, savePerson, updatePersonAssistant, updatePersonVoiceId,
+  saveMemory, getMemory, getAllMemories, countMemories, searchMemories, deleteMemory, updateMemoryTTS,
+  logEvent
 };

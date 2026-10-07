@@ -3,46 +3,56 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 const state = {
-  person: { name: 'Grandpa', relationship: 'grandfather' },
+  key: null,
+  family: null,
+  person: null,
   persons: [],
   memories: [],
   filter: 'all',
   health: null,
+  voices: null,
   samples: [],
-  current: null
+  current: null,
+  freshId: null,
+  view: 'home'
 };
 
-const CATEGORY_SURFACE = {
-  recipe: 'c-parchment', advice: 'c-parchment',
-  story: 'c-blue', family: 'c-blue', event: 'c-blue',
-  place: 'c-sage', other: 'c-sage'
-};
-
-const FILTER_LABELS = { all: 'Everything', recipe: 'Recipes', story: 'Stories', advice: 'Advice', family: 'Family', event: 'Events', place: 'Places', other: 'Other' };
+const FILTER_LABELS = { all: 'All', recipe: 'Recipes', story: 'Stories', advice: 'Advice', family: 'Family', event: 'Events', place: 'Places', other: 'Other' };
 
 const PROMPTS = [
   'What’s a recipe only you know how to make?',
   'Tell me about the day you got married.',
-  'What was your childhood home like?',
+  'What was the house you grew up in like?',
   'What advice would you give your grandchildren?',
   'Who was your best friend growing up?',
   'What was your first job, and what did it pay?',
   'What’s the hardest thing you ever went through?',
   'Which festival do you remember most, and why?'
 ];
+const OWN_PROMPTS = [
+  'What do you want your kids to know about you?',
+  'What’s a recipe you never want lost?',
+  'What was the best day of your life?',
+  'What’s a mistake that taught you something?',
+  'Where did you grow up, and what was it like?'
+];
 
-// ── API helper ─────────────────────────────────────────────────
+// ── Storage (may be unavailable in private mode) ───────────────
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+
+// ── API ────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
   const isForm = opts.body instanceof FormData;
-  const res = await fetch(path, {
-    ...opts,
-    headers: isForm ? undefined : { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    body: isForm ? opts.body : opts.body ? JSON.stringify(opts.body) : undefined
-  });
+  const headers = { ...(isForm ? {} : { 'Content-Type': 'application/json' }), ...(state.key ? { 'X-Family-Key': state.key } : {}) };
+  const res = await fetch(path, { ...opts, headers, body: isForm ? opts.body : opts.body ? JSON.stringify(opts.body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (res.status === 401 && data.code === 'no_family') { forgetFamily(); throw new Error(data.error); }
+  if (res.status === 402) { openUpgrade(data.error); throw Object.assign(new Error(data.error), { quiet: true }); }
+  if (!res.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
   return data;
 }
+const track = (name, props = {}) => state.key && api('/api/track', { method: 'POST', body: { name, props } }).catch(() => {});
 
 function toast(msg, type = '') {
   const t = $('#toast');
@@ -50,60 +60,167 @@ function toast(msg, type = '') {
   t.className = `toast ${type}`;
   t.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (t.hidden = true), 3600);
+  toast.timer = setTimeout(() => (t.hidden = true), 3800);
 }
+const fail = err => err?.quiet || toast(err.message, 'error');
 
 function busy(btn, on) { btn.classList.toggle('busy', on); btn.disabled = on; }
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const initial = name => (name || '?').trim()[0].toUpperCase();
+const initial = name => (name || '?').trim()[0]?.toUpperCase() || '?';
+const isSelf = () => state.person?.relationship === 'myself';
+const yearOf = s => +(String(s || '').match(/\b(1[89]\d\d|20\d\d)\b/)?.[1] || 0);
 
 // ── Routing ────────────────────────────────────────────────────
-const VIEWS = ['home', 'record', 'ask', 'story'];
-function route() {
-  const view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
-  const swap = () => VIEWS.forEach(v => ($(`#view-${v}`).hidden = v !== view));
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (document.startViewTransition && !reduce && route.booted) {
+const APP_VIEWS = ['home', 'record', 'ask', 'story'];
+function show(view) {
+  const all = ['landing', 'welcome', ...APP_VIEWS];
+  const swap = () => all.forEach(v => ($(`#view-${v}`).hidden = v !== view));
+  if (document.startViewTransition && route.booted && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
     const vt = document.startViewTransition(swap);
     vt.ready.catch(() => {}); vt.finished.catch(() => {});
-  }
-  else swap();
-  route.booted = true;
-  observeReveals();
+  } else swap();
+  document.body.className = view === 'landing' ? 'mode-landing' : view === 'welcome' ? 'mode-welcome' : 'mode-app';
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === view));
   window.scrollTo({ top: 0 });
+  observeReveals();
+}
+
+function route() {
+  if (!state.key) {
+    show(location.hash === '#start' ? 'welcome' : 'landing');
+    route.booted = true;
+    return;
+  }
+  const view = APP_VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
+  state.view = view;
+  show(view);
+  route.booted = true;
   if (view === 'story') loadStory();
   if (view === 'ask') renderSuggestions();
+  if (view === 'home') renderMemories();
+  heartbeat();
+  track('view', { view });
 }
 window.addEventListener('hashchange', route);
+
+// ── Family space ───────────────────────────────────────────────
+function takeKeyFromUrl() {
+  const m = location.hash.match(/^#k=([\w-]{16,64})/);
+  if (!m) return;
+  lsSet('memoria.key', m[1]);
+  history.replaceState(null, '', location.pathname + '#home');
+  toast('Welcome to the family album');
+}
+
+function forgetFamily() {
+  state.key = null; state.family = null;
+  lsSet('memoria.key', null);
+  location.hash = '';
+  route();
+}
+
+const privateLink = () => `${location.origin}/#k=${state.key}`;
+
+$$('[data-start]').forEach(b => b.addEventListener('click', () => { location.hash = 'start'; }));
+
+$('#relChips').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  $$('#relChips button').forEach(x => x.setAttribute('aria-checked', String(x === b)));
+  const name = $('#wName');
+  if (b.dataset.rel === 'myself') { name.value = $('#wOwner').value || ''; name.placeholder = 'Your name'; }
+  else if (b.dataset.name) name.value = b.dataset.name;
+  else { name.value = ''; name.placeholder = 'Nani, Uncle Joe, Aunt Rosa…'; }
+  name.focus();
+});
+$$('#relChips button').forEach(b => b.setAttribute('role', 'radio'));
+
+$('#welcomeForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = e.submitter || $('#welcomeForm button');
+  const rel = $('#relChips [aria-checked="true"]')?.dataset.rel || null;
+  const name = $('#wName').value.trim();
+  if (!name) return;
+  busy(btn, true);
+  try {
+    const r = await api('/api/family', {
+      method: 'POST',
+      body: { owner_name: $('#wOwner').value.trim(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, language: navigator.language }
+    });
+    state.key = r.key;
+    state.family = r.family;
+    lsSet('memoria.key', r.key);
+    const p = await api('/api/persons', { method: 'POST', body: { name, relationship: rel } });
+    lsSet('memoria.person', p.name);
+    track('onboarded', { relationship: rel || 'other' });
+    await loadPersons();
+    location.hash = 'record';
+    toast(`${p.name}’s album is ready. Press the tape to begin.`);
+  } catch (err) { fail(err); }
+  finally { busy(btn, false); }
+});
+
+async function loadFamily() {
+  state.family = await api('/api/family');
+  renderPlan();
+}
+
+function renderPlan() {
+  const f = state.family;
+  if (!f) return;
+  const life = f.plan === 'lifetime';
+  $('#sOwner').textContent = f.owner_name || 'you';
+  $('#ownerInput').value = f.owner_name || '';
+  $('#planRow').innerHTML = life
+    ? `<span><span class="plan-badge life">Lifetime</span></span><span>Everything unlocked. Thank you.</span>`
+    : `<span><span class="plan-badge">Free</span> ${f.memory_count} of ${f.limits.memories} stories</span>
+       <button class="pill pill-accent" data-upgrade>Lifetime · ${esc(f.price)}</button>`;
+  $('#voiceLock').hidden = life;
+  $('#cloneArea').hidden = !life;
+}
+
+// ── Presence (powers the live view in the founder dashboard) ───
+function heartbeat() {
+  if (!state.key || document.hidden) return;
+  api('/api/presence', { method: 'POST', body: { view: state.view, person: state.person?.name } }).catch(() => {});
+}
+setInterval(heartbeat, 30_000);
+document.addEventListener('visibilitychange', heartbeat);
 
 // ── Persons ────────────────────────────────────────────────────
 async function loadPersons() {
   state.persons = await api('/api/persons').catch(() => []);
-  const saved = localStorageGet('memoria.person');
+  const saved = lsGet('memoria.person');
   const found = state.persons.find(p => p.name === saved) || state.persons[0];
-  if (found) setPerson(found, false);
+  if (found) await setPerson(found, true);
+  else location.hash = 'start';
 }
 
-function setPerson(p, reload = true) {
+async function setPerson(p, reload = true) {
   state.person = p;
-  localStorageSet('memoria.person', p.name);
+  lsSet('memoria.person', p.name);
+  const self = isSelf();
   $('#chipName').textContent = p.name;
   $('#chipAvatar').textContent = initial(p.name);
-  $('#heroName').textContent = p.name;
-  $('#storyTitle').textContent = p.name;
-  $$('.pname').forEach(el => (el.textContent = p.name));
+  $('#heroName').textContent = self ? 'Your' : p.name;
+  $('#heroName').parentElement.innerHTML = self ? `<span id="heroName">Your</span> stories` : `<span id="heroName">${esc(p.name)}</span>’s stories`;
+  $('#homeLede').textContent = self ? 'The stories you want the people you love to keep.' : `Every story ${p.name} has told, kept in their own words.`;
+  $$('.pname').forEach(el => (el.textContent = self ? 'you' : p.name));
+  $('#cName').textContent = p.name;
   $('#chat').innerHTML = '';
+  renderPrompts();
   renderVoiceStatus();
-  loadAndRenderPresets();
-  if (reload) { loadMemories(); if (!$('#view-story').hidden) loadStory(); }
+  renderVoiceOptions();
+  if (reload) await loadMemories();
+  if (!$('#view-story').hidden) loadStory();
+  heartbeat();
 }
 
 function openPersonSheet() {
   $('#personList').innerHTML = state.persons.map((p, i) => `
-    <li><button data-i="${i}" class="${p.name === state.person.name ? 'current' : ''}">
+    <li><button data-i="${i}" class="${p.name === state.person?.name ? 'current' : ''}">
       <span class="avatar">${esc(initial(p.name))}</span>
-      <span><b>${esc(p.name)}</b><small>${esc(p.relationship || '')}${p.relationship ? ' · ' : ''}${p.memory_count || 0} memories${p.voice_id ? ' · voice ready' : ''}</small></span>
+      <span><b>${esc(p.name)}</b><small>${esc(p.relationship === 'myself' ? 'your own stories' : p.relationship || '')}${p.relationship ? ' · ' : ''}${p.memory_count || 0} stories${p.voice_id ? ' · voice ready' : ''}</small></span>
     </button></li>`).join('');
   $('#personSheet').hidden = false;
 }
@@ -120,66 +237,35 @@ $('#addPersonForm').addEventListener('submit', async e => {
   try {
     const p = await api('/api/persons', { method: 'POST', body: { name: $('#newName').value, relationship: $('#newRel').value } });
     e.target.reset();
-    await loadPersons();
-    setPerson(state.persons.find(x => x.name === p.name) || p);
+    state.persons = await api('/api/persons');
+    await setPerson(state.persons.find(x => x.name === p.name) || p);
     closeSheets();
-    toast(`Now collecting ${p.name}’s memories`);
-  } catch (err) { toast(err.message, 'error'); }
+    toast(`Now keeping ${p.name}’s stories`);
+  } catch (err) { fail(err); }
 });
 
 // ── Memories ───────────────────────────────────────────────────
 async function loadMemories() {
+  if (!state.person) return;
   const q = $('#searchInput').value.trim();
   const params = new URLSearchParams({ person: state.person.name });
   if (q) params.set('q', q);
   try {
-    state.memories = await api(`/api/memories?${params}`);
+    const list = await api(`/api/memories?${params}`);
+    if (q) state.results = list; else { state.memories = list; state.results = null; }
   } catch (err) {
-    toast('Couldn’t load memories. Check your connection.', 'error');
-    state.memories = [];
+    fail(err);
   }
-  if (!q) updateStats(state.memories);
   renderFilters();
   renderMemories();
-}
-
-function updateStats(mems) {
-  countTo($('#statCount'), mems.length);
-  countTo($('#statRecipes'), mems.filter(m => m.category === 'recipe').length);
-  const names = new Set();
-  mems.forEach(m => (m.people || []).forEach(n => names.add(String(n).trim().toLowerCase())));
-  countTo($('#statPeople'), Math.min(names.size, 99));
-}
-
-// Numbers glide to their value with the same expo-out curve as everything else.
-function countTo(el, target) {
-  const from = +el.textContent || 0;
-  if (from === target) return;
-  const start = performance.now(), dur = 1100;
-  const ease = t => (t === 1 ? 1 : 1 - Math.pow(2, -10 * t));
-  (function tick(now) {
-    const t = Math.min(1, (now - start) / dur);
-    el.textContent = Math.round(from + (target - from) * ease(t));
-    if (t < 1) requestAnimationFrame(tick);
-  })(start);
-}
-
-// Elements marked .reveal slide up the first time they scroll into view.
-let revealer;
-function observeReveals() {
-  if (!('IntersectionObserver' in window)) return document.body.classList.add('no-io');
-  revealer ||= new IntersectionObserver(entries => entries.forEach(e => {
-    if (e.isIntersecting) { e.target.classList.add('in'); revealer.unobserve(e.target); }
-  }), { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-  $$('.reveal:not(.in)').forEach(el => revealer.observe(el));
+  renderThread();
 }
 
 function renderFilters() {
   const cats = ['all', ...new Set(state.memories.map(m => m.category))];
   if (!cats.includes(state.filter)) state.filter = 'all';
   $('#filters').innerHTML = cats.length > 2 ? cats.map(c =>
-    `<button role="tab" aria-selected="${c === state.filter}" data-cat="${c}">${FILTER_LABELS[c] || c}</button>`
-  ).join('') : '';
+    `<button role="tab" aria-selected="${c === state.filter}" data-cat="${c}">${FILTER_LABELS[c] || c}</button>`).join('') : '';
 }
 
 $('#filters').addEventListener('click', e => {
@@ -190,23 +276,61 @@ $('#filters').addEventListener('click', e => {
   renderMemories();
 });
 
-function renderMemories() {
-  const list = state.filter === 'all' ? state.memories : state.memories.filter(m => m.category === state.filter);
-  const searching = !!$('#searchInput').value.trim();
-  $('#emptyState').hidden = list.length > 0 || searching;
-  $('#memoryGrid').innerHTML = list.length ? list.map((m, i) => `
-    <button class="mcard ${CATEGORY_SURFACE[m.category] || 'c-blue'}" data-id="${m.id}" style="--i:${i}">
-      <span class="meta"><span>${esc(m.category)}</span><span>${esc(m.memory_date || formatDate(m.created_at))}</span></span>
+function cardHTML(m, i, example = false) {
+  const when = m.memory_date || formatDate(m.created_at);
+  return `<button class="mcard ${m.id === state.freshId ? 'fresh' : ''}" data-id="${m.id || ''}" style="--i:${i}" ${example ? 'tabindex="-1"' : ''}>
+      <span class="meta"><span class="cat">${esc(example ? 'example' : m.category)}</span><span>${esc(when)}</span></span>
       <h3>${esc(m.title)}</h3>
       <p>${esc(m.content)}</p>
-      ${m.tags?.length ? `<span class="tags">${m.tags.slice(0, 4).map(t => `<span>${esc(t)}</span>`).join('')}</span>` : ''}
-    </button>`).join('')
-    : searching ? `<p class="muted">No memories mention “${esc($('#searchInput').value)}” yet. Try asking about it in the Ask tab.</p>` : '';
+      <span class="from">— ${esc(example ? m.who : state.person?.name)}</span>
+    </button>`;
 }
+
+const EXAMPLES = [
+  { title: 'The biryani secret', who: 'Nani', memory_date: '1968', content: 'Fry the onions slowly until they are dark brown, almost burnt, and save that oil. One teaspoon of shahi jeera, two black cardamoms, never green. Soak the rice exactly forty minutes.' },
+  { title: 'Forty rupees and a night train', who: 'Grandpa', memory_date: '1971', content: 'I took the night train to Bombay with forty rupees in my pocket. I slept at the station for three nights before Mr. Desai gave me a job sweeping the floor of his printing press.' },
+  { title: 'Sleep on it', who: 'Dad', memory_date: '1991', content: 'Never sign anything the same day someone gives it to you. Sleep on it. That one rule saved our shop twice.' }
+];
+
+function renderMemories() {
+  const base = state.results || state.memories;
+  const list = state.filter === 'all' ? base : base.filter(m => m.category === state.filter);
+  const searching = !!$('#searchInput').value.trim();
+  const showingExamples = $('#memoryGrid').dataset.examples === '1' && !state.memories.length;
+  $('#emptyState').hidden = state.memories.length > 0 || searching || showingExamples;
+  if (showingExamples) {
+    $('#memoryGrid').innerHTML = EXAMPLES.map((m, i) => cardHTML(m, i, true)).join('');
+    return;
+  }
+  $('#memoryGrid').innerHTML = list.length ? list.map((m, i) => cardHTML(m, i)).join('')
+    : searching ? `<p class="muted">No story mentions “${esc($('#searchInput').value)}” yet. Try asking about it instead.</p>` : '';
+  state.freshId = null;
+}
+
+// The life thread: dated memories placed along a line by year.
+function renderThread() {
+  const dated = state.memories.map(m => ({ m, y: yearOf(m.memory_date) })).filter(x => x.y);
+  const fig = $('#thread');
+  if (dated.length < 2) { fig.hidden = true; return; }
+  const ys = dated.map(d => d.y), min = Math.min(...ys), max = Math.max(...ys);
+  const span = Math.max(1, max - min);
+  dated.sort((a, b) => a.y - b.y);
+  fig.hidden = false;
+  $('#threadTrack').classList.toggle('labeled', dated.length <= 5);
+  $('#threadTrack').innerHTML = dated.map((d, i) => {
+    const left = 4 + ((d.y - min) / span) * 92;
+    return `<button class="t-dot ${i % 2 ? 'up' : ''}" style="left:${left}%;--i:${i}" data-id="${d.m.id}" aria-label="${esc(d.m.title)}, ${d.y}">
+      <span class="yr">${d.y}</span><span class="tt">${esc(d.m.title)}</span></button>`;
+  }).join('');
+}
+$('#threadTrack').addEventListener('click', e => {
+  const b = e.target.closest('.t-dot');
+  if (b) openMemory(state.memories.find(m => m.id === b.dataset.id));
+});
 
 $('#memoryGrid').addEventListener('click', e => {
   const card = e.target.closest('.mcard');
-  if (card) openMemory(state.memories.find(m => m.id === card.dataset.id));
+  if (card?.dataset.id) openMemory((state.results || state.memories).find(m => m.id === card.dataset.id));
 });
 
 let searchTimer;
@@ -215,9 +339,14 @@ $('#searchInput').addEventListener('input', () => {
   searchTimer = setTimeout(loadMemories, 250);
 });
 
+$('#seedBtn').addEventListener('click', () => {
+  $('#memoryGrid').dataset.examples = '1';
+  renderMemories();
+  toast('These are examples. Your own stories will replace them.');
+});
+
 function formatDate(s) {
-  if (!s) return '';
-  const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
+  const d = new Date(s);
   return isNaN(d) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -225,12 +354,13 @@ function formatDate(s) {
 function openMemory(m) {
   if (!m) return;
   state.current = m;
-  $('#mMeta').textContent = [m.category, m.memory_date, `saved ${formatDate(m.created_at)}`].filter(Boolean).join(' · ');
+  $('#mMeta').textContent = [m.category, m.memory_date, `kept ${formatDate(m.created_at)}`].filter(Boolean).join(' · ');
   $('#mTitle').textContent = m.title;
   $('#mTags').innerHTML = (m.tags || []).map(t => `<span>${esc(t)}</span>`).join('');
   $('#mContent').textContent = m.content;
   const audio = $('#mAudio');
   audio.pause(); audio.hidden = true; audio.removeAttribute('src');
+  $('#mDelete').textContent = 'Delete';
   $('#memorySheet').hidden = false;
 }
 
@@ -244,26 +374,22 @@ $('#mPlay').addEventListener('click', async () => {
       const audio = $('#mAudio');
       audio.src = tts_url; audio.hidden = false;
       await audio.play().catch(() => {});
-    } else {
-      browserSpeak(m.content, btn);
-    }
-  } catch (err) {
-    browserSpeak(m.content, btn);
-  } finally { busy(btn, false); }
+    } else browserSpeak(m.content, btn);
+  } catch { browserSpeak(m.content, btn); }
+  finally { busy(btn, false); }
 });
 
 function browserSpeak(text, btn) {
-  if (!('speechSynthesis' in window)) return toast('This browser can’t read aloud.', 'error');
+  if (!('speechSynthesis' in window)) return toast('This browser can’t read out loud.', 'error');
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 0.95;
-  if (btn) { btn.textContent = 'Stop'; u.onend = u.onerror = () => (btn.textContent = btn.dataset.label || 'Listen'); }
+  if (btn) { btn.textContent = 'Stop'; u.onend = u.onerror = () => (btn.textContent = 'Listen'); }
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
 
 $('#mDelete').addEventListener('click', async () => {
-  const m = state.current;
-  const btn = $('#mDelete');
+  const m = state.current, btn = $('#mDelete');
   if (btn.dataset.confirm !== m.id) {
     btn.dataset.confirm = m.id;
     btn.textContent = 'Tap again to delete';
@@ -272,17 +398,17 @@ $('#mDelete').addEventListener('click', async () => {
   }
   try {
     await api(`/api/memories/${m.id}`, { method: 'DELETE' });
-    btn.dataset.confirm = ''; btn.textContent = 'Delete';
+    btn.dataset.confirm = '';
     closeSheets();
-    toast('Memory deleted');
-    loadMemories();
-  } catch (err) { toast(err.message, 'error'); }
+    toast('Story deleted');
+    loadMemories(); loadFamily();
+  } catch (err) { fail(err); }
 });
 
 function closeSheets() {
   $$('.sheet-backdrop:not([hidden])').forEach(s => {
     s.classList.add('closing');
-    setTimeout(() => { s.hidden = true; s.classList.remove('closing'); }, 420);
+    setTimeout(() => { s.hidden = true; s.classList.remove('closing'); }, 220);
   });
   $('#mAudio').pause();
   speechSynthesis.cancel?.();
@@ -292,37 +418,52 @@ $$('.sheet-backdrop').forEach(bd => bd.addEventListener('click', e => {
 }));
 document.addEventListener('keydown', e => e.key === 'Escape' && closeSheets());
 $('#personChip').addEventListener('click', openPersonSheet);
+$('#settingsBtn').addEventListener('click', () => { renderPlan(); $('#settingsSheet').hidden = false; });
 
-// ── Recording ──────────────────────────────────────────────────
-const DEFAULT_PLACEHOLDER = document.querySelector('#transcript').placeholder;
+// ── Recording: the cassette ────────────────────────────────────
+const DEFAULT_PLACEHOLDER = $('#transcript').placeholder;
 const rec = { media: null, chunks: [], blob: null, stream: null, sr: null, timer: null, start: 0, edited: false, finalText: '', ctx: null };
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const TAPE_SECONDS = 600; // a full side: the left reel empties into the right over ten minutes
 
 function pickMime() {
   const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
   return types.find(t => window.MediaRecorder?.isTypeSupported?.(t)) || '';
 }
 
+let promptStart = 0;
 function renderPrompts() {
-  $('#prompts').innerHTML = PROMPTS.map(p => `<button>${esc(p)}</button>`).join('');
+  const list = isSelf() ? OWN_PROMPTS : PROMPTS;
+  const four = Array.from({ length: Math.min(4, list.length) }, (_, i) => list[(promptStart + i) % list.length]);
+  $('#prompts').innerHTML = four.map(p => `<button>${esc(p)}</button>`).join('') +
+    `<button class="more" data-more aria-label="Show different questions">↻ Different questions</button>`;
+  $('#cDate').textContent = new Date().toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
 $('#prompts').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.more) { promptStart += 4; return renderPrompts(); }
   $$('#prompts button').forEach(x => x.classList.toggle('active', x === b));
   browserSpeak(b.textContent);
+  track('prompt_used');
 });
+
+function windTape(seconds) {
+  const t = Math.min(1, seconds / TAPE_SECONDS);
+  $('#tapeL').setAttribute('r', (19 - 10 * t).toFixed(1));
+  $('#tapeR').setAttribute('r', (9 + 10 * t).toFixed(1));
+}
 
 $('#recBtn').addEventListener('click', () => (rec.media?.state === 'recording' ? stopRecording() : startRecording()));
 
 async function startRecording() {
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-    return toast('Recording isn’t supported in this browser. You can type the memory instead.', 'error');
+    return toast('This browser can’t record. You can type the story instead.', 'error');
   }
   try {
     rec.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   } catch {
-    return toast('Microphone access was blocked. Allow it in your browser settings, or type instead.', 'error');
+    return toast('The microphone is blocked. Allow it in your browser settings, or type instead.', 'error');
   }
   speechSynthesis.cancel?.();
   const mime = pickMime();
@@ -354,15 +495,17 @@ async function startRecording() {
     try { rec.sr.start(); } catch {}
   }
 
-  document.querySelector('.recorder').classList.add('recording');
-  $('#recLabel').textContent = 'Listening… tap to stop';
+  $('#deck').classList.add('recording');
+  $('#recLabel').textContent = 'Recording. Tap the tape to stop';
   $('#recBtn').setAttribute('aria-label', 'Stop recording');
+  $('#recBtn').setAttribute('aria-pressed', 'true');
   rec.start = Date.now();
   rec.timer = setInterval(() => {
     const s = Math.floor((Date.now() - rec.start) / 1000);
     $('#recTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    windTape(s);
   }, 250);
-  drawWave(rec.stream);
+  listenLevel(rec.stream);
 }
 
 function stopRecording() {
@@ -371,40 +514,36 @@ function stopRecording() {
   rec.sr = null;
   clearInterval(rec.timer);
   rec.ctx?.close?.();
-  document.querySelector('.recorder').classList.remove('recording');
-  $('#recLabel').textContent = 'Recorded. Check the words, then save';
-  $('#recBtn').setAttribute('aria-label', 'Record again');
+  $('#levelBar').style.width = '0';
+  $('#deck').classList.remove('recording');
+  $('#recLabel').textContent = 'Got it. Check the words, then keep the story';
+  $('#recBtn').setAttribute('aria-label', 'Record more');
+  $('#recBtn').setAttribute('aria-pressed', 'false');
   if (!$('#transcript').value.trim()) {
     $('#transcript').placeholder = state.health?.voice
-      ? 'Your recording will be transcribed when you save.'
-      : 'This browser couldn’t transcribe live. Please type what was said.';
+      ? 'The words will be written out when you keep the story.'
+      : 'This browser couldn’t write the words live. Please type what was said.';
   }
 }
 
-function drawWave(stream) {
-  const canvas = $('#wave'), g = canvas.getContext('2d');
+// Level meter: how loudly they're speaking, so you know the phone is hearing them.
+function listenLevel(stream) {
   try {
     rec.ctx = new (window.AudioContext || window.webkitAudioContext)();
     const an = rec.ctx.createAnalyser();
-    an.fftSize = 128;
+    an.fftSize = 512;
     rec.ctx.createMediaStreamSource(stream).connect(an);
-    const data = new Uint8Array(an.frequencyBinCount);
+    const data = new Uint8Array(an.fftSize);
     (function frame() {
-      if (rec.media?.state !== 'recording') return g.clearRect(0, 0, canvas.width, canvas.height);
-      an.getByteFrequencyData(data);
-      g.clearRect(0, 0, canvas.width, canvas.height);
-      const bars = 40, w = canvas.width / bars;
-      for (let i = 0; i < bars; i++) {
-        const v = data[Math.floor(i * data.length / bars)] / 255;
-        const h = Math.max(3, v * canvas.height);
-        g.fillStyle = `rgba(255, ${89 + Math.round(v * 80)}, 36, ${0.35 + v * 0.65})`;
-        g.beginPath();
-        g.roundRect?.(i * w + w * 0.3, (canvas.height - h) / 2, w * 0.4, h, 3) ?? g.rect(i * w + w * 0.3, (canvas.height - h) / 2, w * 0.4, h);
-        g.fill();
-      }
+      if (rec.media?.state !== 'recording') return;
+      an.getByteTimeDomainData(data);
+      let sum = 0;
+      for (const v of data) sum += ((v - 128) / 128) ** 2;
+      const rms = Math.sqrt(sum / data.length);
+      $('#levelBar').style.width = `${Math.min(100, rms * 420)}%`;
       requestAnimationFrame(frame);
     })();
-  } catch { /* waveform is decorative */ }
+  } catch { /* the meter is a helper, not required */ }
 }
 
 $('#transcript').addEventListener('input', () => (rec.edited = true));
@@ -414,20 +553,28 @@ $('#clearBtn').addEventListener('click', () => {
   $('#transcript').value = '';
   rec.blob = null; rec.edited = false; rec.finalText = '';
   $('#recTime').textContent = '0:00';
-  $('#recLabel').textContent = 'Tap to record';
+  windTape(0);
+  $('#recLabel').textContent = 'Tap the tape to start recording';
   $('#saveResult').hidden = true;
+  $('#saving').hidden = true;
 });
+
+function savingStep(n) {
+  $$('#saving li').forEach((li, i) => { li.classList.toggle('done', i < n); li.classList.toggle('doing', i === n); });
+}
 
 $('#saveBtn').addEventListener('click', async () => {
   if (rec.media?.state === 'recording') { stopRecording(); await new Promise(r => setTimeout(r, 400)); }
   const text = $('#transcript').value.trim();
   const btn = $('#saveBtn');
-  // Send the audio for server-side transcription only if the user hasn't hand-corrected the text.
   const useAudio = rec.blob && state.health?.voice && !rec.edited;
-  if (!text && !useAudio) return toast('Record or type a memory first.', 'error');
+  if (!text && !useAudio) return toast('Record or type a story first.', 'error');
 
   busy(btn, true);
-  btn.firstChild && (btn.dataset.label = 'Save memory');
+  $('#saveResult').hidden = true;
+  $('#saving').hidden = false;
+  savingStep(useAudio ? 0 : 1);
+  const step = setTimeout(() => savingStep(1), useAudio ? 2500 : 0);
   try {
     let data;
     if (useAudio) {
@@ -439,44 +586,58 @@ $('#saveBtn').addEventListener('click', async () => {
     } else {
       data = await api('/api/memories', { method: 'POST', body: { content: text, person_name: state.person.name } });
     }
+    clearTimeout(step);
+    savingStep(2);
+    await new Promise(r => setTimeout(r, 450));
+    savingStep(3);
     showSaved(data.memory);
     $('#transcript').value = '';
     $('#transcript').placeholder = DEFAULT_PLACEHOLDER;
     rec.blob = null; rec.edited = false; rec.finalText = '';
     $('#recTime').textContent = '0:00';
-    $('#recLabel').textContent = 'Tap to record another';
-    loadMemories();
+    windTape(0);
+    $('#recLabel').textContent = 'Tap the tape to record another';
+    state.freshId = data.memory.id;
+    delete $('#memoryGrid').dataset.examples;
+    await loadMemories();
+    state.freshId = data.memory.id;
+    loadFamily();
   } catch (err) {
-    toast(err.message, 'error');
+    clearTimeout(step);
+    $('#saving').hidden = true;
+    fail(err);
   } finally { busy(btn, false); }
 });
 
 function showSaved(m) {
   const box = $('#saveResult');
   box.innerHTML = `
-    <p class="eyebrow">Saved to ${esc(state.person.name)}’s collection</p>
+    <p class="eyebrow">Kept in ${esc(isSelf() ? 'your' : state.person.name + '’s')} album</p>
     <h4>${esc(m.title)}</h4>
-    <div class="tags">${[m.category, m.memory_date, ...(m.tags || [])].filter(Boolean).map(t => `<span>${esc(t)}</span>`).join('')}</div>
+    <div class="tags">${[m.memory_date, ...(m.tags || [])].filter(Boolean).map(t => `<span>${esc(t)}</span>`).join('')}</div>
     ${m.summary && m.summary !== m.content ? `<p>${esc(m.summary)}</p>` : ''}
     <div class="row-actions">
-      <a class="pill pill-slate" href="#ask">Ask about it</a>
-      <button class="pill pill-ember" id="openSaved">Open memory</button>
+      <a class="pill pill-line" href="#home">See it in the album</a>
+      <a class="pill pill-accent" href="#ask">Ask about it</a>
     </div>`;
   box.hidden = false;
-  $('#openSaved').onclick = () => openMemory(m);
+  setTimeout(() => { $('#saving').hidden = true; }, 600);
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // ── Ask ────────────────────────────────────────────────────────
 function renderSuggestions() {
-  const p = state.person.name;
-  const recipes = state.memories.filter(m => m.category === 'recipe');
-  const qs = [
-    recipes[0] ? `How do I make ${recipes[0].title.toLowerCase().replace(/^(the|my|a)\s+/, '')}?` : `What did ${p} love to cook?`,
-    `What advice did ${p} give about life?`,
-    `Where did ${p} grow up?`,
-    `Tell me a funny story`
-  ];
+  if (!state.person) return;
+  const p = isSelf() ? 'I' : state.person.name;
+  const recipe = state.memories.find(m => m.category === 'recipe');
+  const dated = state.memories.find(m => yearOf(m.memory_date));
+  const qs = isSelf()
+    ? ['What advice did I leave?', 'What recipes did I record?', 'What was my childhood like?']
+    : [
+        recipe ? `How do I make ${recipe.title.toLowerCase().replace(/^(the|my|a|nani's|grandma's)\s+/, '')}?` : `What did ${p} love to cook?`,
+        dated ? `What happened in ${yearOf(dated.memory_date)}?` : `Where did ${p} grow up?`,
+        `What advice did ${p} give?`
+      ];
   $('#suggestions').innerHTML = $('#chat').children.length ? '' : qs.map(q => `<button>${esc(q)}</button>`).join('');
 }
 $('#suggestions').addEventListener('click', e => {
@@ -487,28 +648,43 @@ $('#suggestions').addEventListener('click', e => {
 $('#chatForm').addEventListener('submit', async e => {
   e.preventDefault();
   const q = $('#chatInput').value.trim();
-  if (!q) return;
+  if (!q || !state.person) return;
   $('#chatInput').value = '';
   $('#suggestions').innerHTML = '';
   addMsg('user', esc(q));
-  const typing = addMsg('bot', '<span class="typing"><span></span><span></span><span></span></span>');
+  const name = state.person.name;
+  const bubble = addMsg('bot', `<p class="who">${esc(name)}</p><span class="typing"><span></span><span></span><span></span></span>`);
   try {
     const speak = $('#speakToggle').checked;
-    const r = await api('/api/chat', { method: 'POST', body: { question: q, person_name: state.person.name, speak } });
-    typing.innerHTML = `
+    const r = await api('/api/chat', { method: 'POST', body: { question: q, person_name: name, speak } });
+    const quotes = r.sources.filter(s => s.quote).map(s => `
+      <figure class="quote">
+        <blockquote>“${esc(s.quote)}”</blockquote>
+        <button data-id="${s.id}">From “${esc(s.title)}”${s.memory_date ? ` · ${esc(s.memory_date)}` : ''}</button>
+      </figure>`).join('');
+    bubble.innerHTML = `
+      <p class="who">${esc(name)}</p>
       <p class="answer">${esc(r.answer)}</p>
-      ${r.sources?.length ? `<div class="sources"><small>From</small>${r.sources.slice(0, 3).map(s => `<button data-id="${s.id}">${esc(s.title)}</button>`).join('')}</div>` : ''}
-      <button class="listen">Listen again</button>`;
-    typing.querySelector('.listen').onclick = () => r.tts_url ? new Audio(r.tts_url).play() : browserSpeak(r.answer);
-    typing.querySelectorAll('.sources button').forEach(b => (b.onclick = async () => {
+      ${r.grounded && quotes ? `<p class="quote-label">In ${esc(isSelf() ? 'your' : 'their')} own words</p>${quotes}` : ''}
+      ${!r.grounded ? `<div class="not-yet">${esc(isSelf() ? 'You haven’t' : name + ' hasn’t')} talked about this yet. It could be a great question for the next recording.
+         <div class="row-actions"><button class="pill pill-accent" data-record>Record this story</button></div></div>` : ''}
+      <div class="msg-actions"><button class="listen">Listen</button></div>`;
+    bubble.querySelector('.listen').onclick = () => r.tts_url ? new Audio(r.tts_url).play() : browserSpeak(r.answer);
+    bubble.querySelectorAll('.quote button').forEach(b => (b.onclick = async () => {
       const m = state.memories.find(x => x.id === b.dataset.id) || await api(`/api/memories/${b.dataset.id}`).catch(() => null);
       openMemory(m);
     }));
-    if (speak) r.tts_url ? new Audio(r.tts_url).play().catch(() => {}) : browserSpeak(r.answer);
+    bubble.querySelector('[data-record]')?.addEventListener('click', () => {
+      location.hash = 'record';
+      setTimeout(() => {
+        $('#prompts').insertAdjacentHTML('afterbegin', `<button class="active">${esc(q)}</button>`);
+      }, 50);
+    });
+    if (speak) r.tts_url ? new Audio(r.tts_url).play().catch(() => {}) : r.grounded && browserSpeak(r.answer);
   } catch (err) {
-    typing.innerHTML = `<p class="answer">Sorry, that didn’t work: ${esc(err.message)}</p>`;
+    bubble.innerHTML = `<p class="answer">Sorry, that didn’t work. ${esc(err.message)}</p>`;
   }
-  typing.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  bubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
 });
 
 function addMsg(role, html) {
@@ -520,125 +696,59 @@ function addMsg(role, html) {
   return el;
 }
 
-// ── Story ──────────────────────────────────────────────────────
+// ── Keep forever ───────────────────────────────────────────────
 async function loadStory(force = false) {
   const t = $('#tribute');
+  if (!state.person) return;
   if (!force && t.dataset.for === state.person.name && t.dataset.count == state.memories.length) return;
-  t.textContent = 'Reading through their memories…';
+  if (!state.memories.length) {
+    t.textContent = `Once ${isSelf() ? 'you’ve' : state.person.name + ' has'} recorded a few stories, a short tribute will appear here, written only from their words.`;
+    return;
+  }
+  t.classList.add('loading');
+  t.textContent = 'Reading through their stories…';
   try {
     const r = await api(`/api/summary/${encodeURIComponent(state.person.name)}`);
-    t.textContent = r.summary || `No memories yet. Once ${state.person.name} has recorded a few, a short tribute will appear here.`;
+    t.textContent = r.summary;
     t.dataset.for = state.person.name;
     t.dataset.count = r.memory_count;
   } catch {
     t.textContent = 'Couldn’t write the tribute right now. Try again in a moment.';
   }
-  renderEngines();
+  t.classList.remove('loading');
 }
 $('#refreshStory').addEventListener('click', () => loadStory(true));
 
 function renderVoiceStatus() {
   const el = $('#voiceStatus');
-  if (!state.health || !el) return;
-  const currentVoiceId = state.person.voice_id || state.health.default_voice;
-  const presets = state.voiceData?.presets || [];
-  const preset = presets.find(p => p.id === currentVoiceId);
-
-  if (!state.health.voice) {
-    el.innerHTML = 'Voice cloning isn’t switched on for this server yet. For now, memories are read aloud by your device’s built-in voice.';
-  } else if (state.person.voice_id && !preset) {
-    el.innerHTML = `<b>●</b> ${esc(state.person.name)}’s custom cloned voice is ready. Every memory will play in it.`;
-  } else if (preset) {
-    el.innerHTML = `<b>●</b> Active storyteller voice: <strong>${esc(preset.name)}</strong> (${esc(preset.tag)}). Ready for playback.`;
-  } else {
-    el.innerHTML = `Using default warm storyteller voice (Grandma Clo). Or record 1–3 samples to clone their own voice.`;
-  }
-
-  const heroVoice = $('#heroVoiceLabel');
-  if (heroVoice) {
-    heroVoice.textContent = preset ? preset.name : (state.person.voice_id ? 'Cloned Voice' : 'Grandma Clo');
-  }
+  if (!el || !state.person) return;
+  const preset = state.voices?.presets?.find(v => v.id === state.person.voice_id);
+  if (!state.health?.voice) el.textContent = 'Stories are read out loud by your device’s built-in voice.';
+  else if (state.person.voice_id && !preset) el.innerHTML = `<b>●</b> ${esc(state.person.name)}’s own voice is ready. Every story will play in it.`;
+  else el.textContent = `Stories are read in the “${preset?.name || state.voices?.presets?.[0]?.name || 'gentle'}” reading voice for now.`;
   updateCloneBtn();
 }
 
-async function loadAndRenderPresets() {
-  const container = $('#presetVoicesGrid');
-  if (!container) return;
+async function renderVoiceOptions() {
   try {
-    const data = await api('/api/voices');
-    state.voiceData = data;
-    const presets = data.presets || [];
-    const currentVoiceId = state.person.voice_id || data.default_voice_id;
-
-    const activePreset = presets.find(p => p.id === currentVoiceId);
-    const heroVoice = $('#heroVoiceLabel');
-    if (heroVoice) {
-      heroVoice.textContent = activePreset ? activePreset.name : (state.person.voice_id ? 'Cloned Voice' : 'Grandma Clo');
-    }
-
-    container.innerHTML = presets.map(p => {
-      const isSelected = p.id === currentVoiceId;
-      return `
-        <button type="button" class="preset-voice-card ${isSelected ? 'active' : ''}" data-voice-id="${esc(p.id)}">
-          <div class="preset-voice-head">
-            <span>${esc(p.name)}</span>
-            <span class="preset-voice-tag">${esc(p.tag)}</span>
-          </div>
-          <p class="preset-voice-desc">${esc(p.description)}</p>
-        </button>
-      `;
-    }).join('');
-
-    container.querySelectorAll('.preset-voice-card').forEach(card => {
-      card.addEventListener('click', async () => {
-        const voiceId = card.dataset.voiceId;
-        try {
-          await api(`/api/persons/${encodeURIComponent(state.person.name)}/voice`, {
-            method: 'POST',
-            body: { voice_id: voiceId }
-          });
-          state.person.voice_id = voiceId;
-          const chosen = presets.find(p => p.id === voiceId);
-          toast(`Voice set to ${chosen ? chosen.name : 'preset'}`);
-          renderVoiceStatus();
-          loadAndRenderPresets();
-        } catch (err) {
-          toast(err.message, 'error');
-        }
-      });
-    });
-  } catch (err) {
-    console.warn('Failed to load voice presets:', err);
-  }
+    state.voices ||= await api('/api/voices');
+    const current = state.person?.voice_id || state.voices.default_voice_id;
+    $('#presetVoicesGrid').innerHTML = state.voices.presets.map(v =>
+      `<button type="button" data-voice="${esc(v.id)}" aria-pressed="${v.id === current}"><span>${esc(v.name)}</span><small>${esc(v.description)}</small></button>`).join('');
+    renderVoiceStatus();
+  } catch { /* optional */ }
 }
+$('#presetVoicesGrid').addEventListener('click', async e => {
+  const b = e.target.closest('[data-voice]');
+  if (!b) return;
+  try {
+    await api(`/api/persons/${encodeURIComponent(state.person.name)}/voice`, { method: 'POST', body: { voice_id: b.dataset.voice } });
+    state.person.voice_id = b.dataset.voice;
+    renderVoiceOptions();
+    toast('Reading voice changed');
+  } catch (err) { fail(err); }
+});
 
-function renderEngines() {
-  const h = state.health;
-  if (!h) return;
-  const ai = h.ai || {};
-  const items = [
-    [!!h.backboard, `<b>Backboard</b> keeps each person's memory and answers with ${h.backboard ? esc(h.backboard) : 'Gemma'}, all through one API key`],
-    [ai.tinker, `<b>Tinker</b> serves an open-weight backup model${ai.tinkerModel ? ` (${esc(ai.tinkerModel)})` : ''} if Backboard is unreachable`],
-    [h.voice, `<b>ElevenLabs</b> for accurate transcription in 90+ languages, plus voice cloning & presets`],
-    [true, `<b>Render</b> runs this app. Raw audio is deleted as soon as it's transcribed`]
-  ];
-  $('#engineList').innerHTML = items.map(([on, txt]) => `<li class="${on ? 'on' : ''}">${txt}${on ? '' : ' <small>(not set up)</small>'}</li>`).join('') +
-    `<li class="on">Writing titles and tags with: <b>${esc(engineLabel(ai.engine))}</b></li>` +
-    `<li class="on">Answering questions with: <b>${esc(h.backboard ? engineLabel('backboard:' + h.backboard) : engineLabel(ai.engine))}</b></li>`;
-
-  const heroAi = $('#heroAiLabel');
-  if (heroAi) {
-    heroAi.textContent = h.backboard ? 'Gemma 4' : ai.tinker ? 'Tinker' : 'Heuristic Rules';
-  }
-}
-
-function engineLabel(engine = 'heuristic') {
-  if (engine.startsWith('backboard:')) return `Gemma through Backboard (${engine.slice(10)})`;
-  if (engine.startsWith('tinker:')) return `Open model on Tinker (${engine.slice(7)})`;
-  return 'Memoria’s built-in rules. Add a Backboard key for full AI answers';
-}
-
-// Voice samples
 $('#sampleFiles').addEventListener('change', e => {
   [...e.target.files].forEach(f => state.samples.push(f));
   e.target.value = '';
@@ -659,8 +769,8 @@ $('#sampleRecBtn').addEventListener('click', async () => {
       stream.getTracks().forEach(t => t.stop());
       clearInterval(sampleRec.timer);
       const type = sampleRec.media.mimeType || 'audio/webm';
-      state.samples.push(new File(sampleRec.chunks, `sample-${state.samples.length + 1}.${type.includes('mp4') ? 'm4a' : 'webm'}`, { type }));
-      btn.textContent = 'Record a sample';
+      state.samples.push(new File(sampleRec.chunks, `recording-${state.samples.length + 1}.${type.includes('mp4') ? 'm4a' : 'webm'}`, { type }));
+      btn.textContent = 'Record their voice';
       renderSamples();
     };
     sampleRec.media.start();
@@ -670,12 +780,12 @@ $('#sampleRecBtn').addEventListener('click', async () => {
       btn.textContent = `Stop · ${s}s`;
       if (s >= 120) sampleRec.media.stop();
     }, 500);
-  } catch { toast('Microphone access was blocked.', 'error'); }
+  } catch { toast('The microphone is blocked.', 'error'); }
 });
 
 function renderSamples() {
   $('#sampleList').innerHTML = state.samples.map((f, i) =>
-    `<li><span>${esc(f.name)} · ${(f.size / 1024).toFixed(0)} KB</span><button data-i="${i}" aria-label="Remove">×</button></li>`).join('');
+    `<li><span>${esc(f.name)}</span><button data-i="${i}" aria-label="Remove">×</button></li>`).join('');
   updateCloneBtn();
 }
 $('#sampleList').addEventListener('click', e => {
@@ -700,56 +810,114 @@ $('#cloneBtn').addEventListener('click', async () => {
     renderSamples();
     renderVoiceStatus();
     toast(`${state.person.name}’s voice is ready`);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) { fail(err); }
   finally { busy(btn, false); updateCloneBtn(); }
 });
 
-$('#exportBtn').addEventListener('click', () => {
-  location.href = `/api/export/${encodeURIComponent(state.person.name)}`;
-});
-$('#printBtn').addEventListener('click', async () => {
-  location.hash = 'home';
-  state.filter = 'all';
-  $('#searchInput').value = '';
-  await loadMemories();
-  setTimeout(() => window.print(), 300);
+$('#exportBtn').addEventListener('click', async () => {
+  try {
+    const res = await fetch(`/api/export/${encodeURIComponent(state.person.name)}`, { headers: { 'X-Family-Key': state.key } });
+    const blob = await res.blob();
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `memoria-${state.person.name}.json` });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch { toast('Couldn’t download right now.', 'error'); }
 });
 
-// ── Sample data (lets a new visitor see the value in seconds) ──
-const SAMPLES = [
-  'My biryani secret is simple. Fry the onions slowly until they are dark brown, almost burnt, and save that oil. Use one teaspoon of shahi jeera and two black cardamoms, never green. Soak the rice exactly forty minutes. Your grandmother Kamala taught me that in 1968.',
-  'In 1971 I took the night train from Lucknow to Bombay with only forty rupees in my pocket. I slept on the station for three nights before Mr. Desai gave me a job at his printing press. I swept floors first. Within five years I was running the press.',
-  'Always pay back a favour before you ask for another one. And never sign anything the same day someone gives it to you. Sleep on it. That one rule saved our shop twice.',
-  'We were married on a rainy day in February 1965. Kamala wore her mother’s red sari and the electricity went out halfway through the ceremony, so the whole wedding was lit with lanterns. Everyone said it was the most beautiful wedding in the village.'
-];
-$('#seedBtn').addEventListener('click', async () => {
-  const btn = $('#seedBtn');
+$('#printBtn').addEventListener('click', () => {
+  if (state.family?.plan !== 'lifetime') return openUpgrade('The keepsake book is part of Lifetime.');
+  const p = state.person.name;
+  const sorted = [...state.memories].sort((a, b) => (yearOf(a.memory_date) || 9999) - (yearOf(b.memory_date) || 9999));
+  $('#keepsake').innerHTML = `
+    <div class="cover"><p>The stories of</p><h1>${esc(p)}</h1><p>${sorted.length} stories, in their own words · kept with Memoria</p></div>
+    ${sorted.map(m => `<article><h2>${esc(m.title)}</h2><small>${esc(m.memory_date || formatDate(m.created_at))}</small><p>${esc(m.content)}</p></article>`).join('')}`;
+  track('print');
+  setTimeout(() => window.print(), 100);
+});
+
+async function copyLink(btn) {
+  try {
+    await navigator.clipboard.writeText(privateLink());
+    toast('Private link copied. Keep it within the family.');
+  } catch {
+    prompt('Copy your private link:', privateLink());
+  }
+  track('share_link');
+}
+$('#shareLinkBtn').addEventListener('click', e => {
+  if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+    navigator.share({ title: 'Our family stories on Memoria', text: 'Add your stories to our family album:', url: privateLink() }).catch(() => {});
+    track('share_link');
+  } else copyLink(e.target);
+});
+$('#copyLinkBtn').addEventListener('click', e => copyLink(e.target));
+$('#emailLinkBtn').addEventListener('click', () => {
+  location.href = `mailto:?subject=${encodeURIComponent('My Memoria family link')}&body=${encodeURIComponent(`Keep this safe. It opens our family's stories on any device:\n\n${privateLink()}`)}`;
+});
+$('#ownerForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    state.family = { ...state.family, ...(await api('/api/family', { method: 'PATCH', body: { owner_name: $('#ownerInput').value } })) };
+    renderPlan();
+    toast('Saved');
+  } catch (err) { fail(err); }
+});
+
+// ── Lifetime ───────────────────────────────────────────────────
+function openUpgrade(reason) {
+  closeSheets();
+  setTimeout(() => {
+    $('#uReason').textContent = reason || 'Everything you need to keep the whole family’s stories.';
+    $('#upgradeSheet').hidden = false;
+  }, 240);
+  track('upgrade_viewed', { reason: (reason || 'menu').slice(0, 60) });
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-upgrade]')) openUpgrade(); });
+
+$('#buyBtn').addEventListener('click', async () => {
+  const btn = $('#buyBtn');
   busy(btn, true);
   try {
-    for (const content of SAMPLES) {
-      await api('/api/memories', { method: 'POST', body: { content, person_name: state.person.name } });
-    }
-    toast('Added 4 sample memories. Now try the Ask tab.');
-    loadMemories();
-  } catch (err) { toast(err.message, 'error'); }
-  finally { busy(btn, false); }
+    const { url } = await api('/api/billing/checkout', { method: 'POST' });
+    location.href = url;
+  } catch (err) { fail(err); busy(btn, false); }
 });
 
-// ── Storage helpers (may be unavailable in private mode) ───────
-function localStorageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
-function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+async function waitForLifetime() {
+  toast('Thank you! Unlocking Lifetime…');
+  for (let i = 0; i < 20; i++) {
+    await loadFamily().catch(() => {});
+    if (state.family?.plan === 'lifetime') return toast('Lifetime unlocked. Every story, for everyone.');
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  toast('Payment received. Lifetime will switch on in a minute or two.');
+}
+
+// ── Reveal on scroll ───────────────────────────────────────────
+let revealer;
+function observeReveals() {
+  if (!('IntersectionObserver' in window)) return document.body.classList.add('no-io');
+  revealer ||= new IntersectionObserver(entries => entries.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); revealer.unobserve(e.target); }
+  }), { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+  $$('.reveal:not(.in)').forEach(el => revealer.observe(el));
+}
 
 // ── Boot ───────────────────────────────────────────────────────
 async function boot() {
-  renderPrompts();
+  takeKeyFromUrl();
+  state.key = lsGet('memoria.key');
+  const paid = new URLSearchParams(location.search).has('paid');
+  if (paid) history.replaceState(null, '', location.pathname + location.hash);
   route();
   state.health = await api('/api/health').catch(() => null);
-  $('#sttHint').textContent = state.health?.voice ? 'transcribed by ElevenLabs on save' : SR ? 'live transcription on this device' : 'type below';
-  await loadPersons();
-  await loadMemories();
-  await loadAndRenderPresets();
-  renderVoiceStatus();
-  renderEngines();
-  renderSuggestions();
+  $('#sttHint').textContent = state.health?.voice ? 'written out when you keep the story' : SR ? 'written out live as they talk' : 'type below';
+  if (!state.key) return;
+  try {
+    await loadFamily();
+    await loadPersons();
+    route();
+    if (paid) waitForLifetime();
+  } catch (err) { fail(err); }
 }
 boot();

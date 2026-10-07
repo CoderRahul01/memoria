@@ -12,17 +12,17 @@ const API_KEY = configured('BACKBOARD_API_KEY');
 const PROVIDER = process.env.BACKBOARD_LLM_PROVIDER || 'openrouter';
 let model = process.env.BACKBOARD_MODEL || 'google/gemma-4-31b-it';
 
-const threads = new Map(); // person name → thread_id, so follow-up questions keep context
+const threads = new Map(); // assistant id → thread_id, so follow-up questions keep context
 
 const enabled = () => !!API_KEY;
 const modelLabel = () => `${PROVIDER}/${model}`.replace(/^openrouter\/(?=google)/, '');
 
-async function bb(path, body, method = 'POST') {
+async function bb(path, body, method = 'POST', timeoutMs = 60_000) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: { 'X-API-Key': API_KEY, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(60_000)
+    signal: AbortSignal.timeout(timeoutMs)
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`Backboard ${res.status}: ${text.slice(0, 200)}`);
@@ -57,7 +57,7 @@ If the memories don't contain the answer, say honestly that ${personName} hasn't
 /** Create (once) the assistant that holds this person's memories. */
 async function ensureAssistant(person) {
   if (person.backboard_assistant_id) return person.backboard_assistant_id;
-  const a = await bb('/assistants', { name: `Memoria · ${person.name}`, system_prompt: systemPrompt(person.name) });
+  const a = await bb('/assistants', { name: `Memoria · ${person.name} · ${String(person.family_id).slice(0, 8)}`, system_prompt: systemPrompt(person.name) });
   return a.assistant_id;
 }
 
@@ -75,20 +75,20 @@ async function addMemory(assistantId, memory) {
  */
 /** Plain completion on a scratch assistant (memory off) — titles, tags, tributes. */
 let writerId = null;
-async function complete(prompt, system) {
+async function complete(prompt, system, { modelName = model, timeoutMs = 60_000 } = {}) {
   writerId ||= (await bb('/assistants', { name: 'Memoria · Writer', system_prompt: 'You are a careful, warm writing assistant.' })).assistant_id;
   const r = await bb('/threads/messages', {
     content: prompt,
     assistant_id: writerId,
     llm_provider: PROVIDER,
-    model_name: model,
+    model_name: modelName,
     memory: 'off',
     ...(system ? { system_prompt: system } : {})
-  }).catch(e => { writerId = null; throw e; });
+  }, 'POST', timeoutMs);
   return (r.content || '').trim();
 }
 
-async function ask(assistantId, personName, question, context) {
+async function ask(assistantId, personName, question, context, timeoutMs = 60_000) {
   const body = {
     content: context ? `${question}\n\n(Possibly relevant memories:\n${context})` : question,
     assistant_id: assistantId,
@@ -97,18 +97,18 @@ async function ask(assistantId, personName, question, context) {
     memory: 'Readonly',             // read the family's memories, never write questions into them
     system_prompt: systemPrompt(personName)
   };
-  const prior = threads.get(personName);
+  const prior = threads.get(assistantId);
   if (prior) body.thread_id = prior;
 
   let r;
-  try { r = await bb('/threads/messages', body); }
+  try { r = await bb('/threads/messages', body, 'POST', timeoutMs); }
   catch (e) {
     if (!prior) throw e;
-    threads.delete(personName);       // stale thread — retry fresh
+    threads.delete(assistantId);      // stale thread — retry fresh
     delete body.thread_id;
-    r = await bb('/threads/messages', body);
+    r = await bb('/threads/messages', body, 'POST', timeoutMs);
   }
-  if (r.thread_id) threads.set(personName, r.thread_id);
+  if (r.thread_id) threads.set(assistantId, r.thread_id);
   return {
     text: (r.content || r.message || '').trim(),
     retrieved: (r.retrieved_memories || []).map(m => m.memory),
@@ -116,4 +116,6 @@ async function ask(assistantId, personName, question, context) {
   };
 }
 
-module.exports = { enabled, discoverModel, ensureAssistant, addMemory, ask, complete, modelLabel };
+const warm = () => complete('Reply with OK.', null, { timeoutMs: 20_000 }).catch(() => {});
+
+module.exports = { enabled, warm, discoverModel, ensureAssistant, addMemory, ask, complete, modelLabel };

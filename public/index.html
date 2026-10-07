@@ -3,259 +3,245 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f9fafc">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  
-  <!-- ── Primary SEO ─────────────────────────────────────────── -->
-  <title>Memoria — Private Family AI Archive, Voice Cloning & Storytelling Companion</title>
-  <meta name="title" content="Memoria — Private Family AI Archive, Voice Cloning & Storytelling Companion">
-  <meta name="description" content="Record and preserve the stories, recipes, and life advice of the people you love in their own words. Ask questions and hear answers read back in their voice using Google Gemma and ElevenLabs.">
-  <meta name="keywords" content="family archive, oral history preservation, voice cloning, ElevenLabs, Google Gemma 4, Backboard, Render, Tinker, private AI, family stories, grandma recipes, audio memoir, Hacktoberfest 2026">
-  <meta name="author" content="Memoria Open Source Community">
-  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
-  <link rel="canonical" href="https://memoria-app.onrender.com">
-
-  <!-- ── Open Graph / Facebook / LinkedIn ────────────────────── -->
+  <meta name="theme-color" content="#F5EFE4">
+  <title>Memoria — Keep their stories, in their own words</title>
+  <meta name="description" content="Record the stories, recipes and advice of the people you love. Ask about them any time and hear the answer in their words. Free to start, one payment for life.">
+  <meta name="author" content="Rahul Pandey">
+  <link rel="canonical" href="https://memoria-family.vercel.app/">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://memoria-app.onrender.com">
-  <meta property="og:title" content="Memoria — Keep Their Stories, in Their Own Words">
-  <meta property="og:description" content="A private, consent-first AI oral history archive. Preserves recipes, memories, and wisdom using Google Gemma and ElevenLabs voice cloning.">
-  <meta property="og:site_name" content="Memoria">
-  <meta property="og:locale" content="en_US">
-
-  <!-- ── Twitter Cards ───────────────────────────────────────── -->
+  <meta property="og:url" content="https://memoria-family.vercel.app/">
+  <meta property="og:title" content="Memoria — Keep their stories, in their own words">
+  <meta property="og:description" content="Press record, let them talk. Memoria keeps every story safe and lets the whole family ask about them later.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Memoria — Private Family AI Archive & Voice Companion">
-  <meta name="twitter:description" content="Record family stories, ask questions anytime, and hear answers read back in their own voice. Open models, private by default.">
-
-  <!-- ── AEO & GEO Structured Data (JSON-LD) ────────────────── -->
+  <meta name="twitter:creator" content="@rahulpandey187">
   <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "WebApplication",
-        "@id": "https://memoria-app.onrender.com/#app",
-        "name": "Memoria",
-        "url": "https://memoria-app.onrender.com",
-        "applicationCategory": "LifestyleApplication",
-        "operatingSystem": "All modern browsers (Web, iOS, Android, macOS, Windows)",
-        "description": "Private, consent-first family oral history archive that preserves voices, stories, and recipes using Google Gemma and ElevenLabs.",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
-        "featureList": [
-          "Private audio recording with Speech-to-Text transcription",
-          "Open-weight Google Gemma AI memory structuring",
-          "Consent-first ElevenLabs voice cloning and audio playback",
-          "Conversational memory retrieval powered by Backboard.io",
-          "Complete local SQLite data ownership with JSON export"
-        ]
-      },
-      {
-        "@type": "FAQPage",
-        "@id": "https://memoria-app.onrender.com/#faq",
-        "mainEntity": [
-          {
-            "@type": "Question",
-            "name": "What is Memoria?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Memoria is an open-source, private oral history archive and AI companion that preserves the stories, family recipes, and life lessons of older generations in their own words and voices."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "How does voice cloning work with family consent?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Memoria uses ElevenLabs voice cloning exclusively with explicit elder and family consent. Samples are used strictly for private family playback and are never used to train public foundation models."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Which AI models power Memoria?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Memoria is built on Google Gemma 4 open-weight models for memory structuring and life tributes, Backboard.io for memory RAG retrieval, ElevenLabs for voice synthesis, and Tinker for open-model backup inference."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Who owns our family's data in Memoria?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "The family has 100% data sovereignty. All memories and tags are stored in a local SQLite database that can be downloaded as JSON or printed as a keepsake book at any time."
-            }
-          }
-        ]
-      }
-    ]
-  }
+  {"@context":"https://schema.org","@type":"WebApplication","name":"Memoria","url":"https://memoria-family.vercel.app/",
+   "applicationCategory":"LifestyleApplication","operatingSystem":"Any modern browser",
+   "description":"Record the stories, recipes and advice of the people you love, and ask about them any time.",
+   "offers":[{"@type":"Offer","price":"0","priceCurrency":"USD","name":"Free"},{"@type":"Offer","price":"19","priceCurrency":"USD","name":"Lifetime"}],
+   "author":{"@type":"Person","name":"Rahul Pandey","sameAs":["https://x.com/rahulpandey187","https://www.linkedin.com/in/rahulpandey187","https://dev.to/talkyrahulrp","https://github.com/CoderRahul01"]}}
   </script>
-
-  <!-- ── Typography & Styling ────────────────────────────────── -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='7' width='26' height='18' rx='3' fill='%23B4472C'/%3E%3Ccircle cx='11' cy='16' r='3.5' fill='%23F5EFE4'/%3E%3Ccircle cx='21' cy='16' r='3.5' fill='%23F5EFE4'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Playfair+Display:ital,wght@0,400..800;1,400..800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Instrument+Sans:wght@400;500;600&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- ── Top bar ─────────────────────────────────────────── -->
+  <!-- Paper grain, shared by every screen -->
+  <svg class="grain" aria-hidden="true"><filter id="grainF"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .05 0"/></filter><rect width="100%" height="100%" filter="url(#grainF)"/></svg>
+
   <header class="topbar">
-    <a class="logo" href="#home" data-nav="home">memoria</a>
-    <nav class="topnav" aria-label="Main">
-      <a href="#home" data-nav="home">Home</a>
+    <a class="logo" href="#home" data-nav="home" aria-label="Memoria home">
+      <svg viewBox="0 0 32 20" aria-hidden="true"><rect x="1" y="1" width="30" height="18" rx="3"/><circle cx="10" cy="10" r="3.4"/><circle cx="22" cy="10" r="3.4"/><path d="M10 13.4h12"/></svg>
+      memoria
+    </a>
+    <nav class="topnav app-only" aria-label="Main">
+      <a href="#home" data-nav="home">Their stories</a>
       <a href="#record" data-nav="record">Record</a>
       <a href="#ask" data-nav="ask">Ask</a>
-      <a href="#story" data-nav="story">Their story</a>
-      <a href="#faq-section" data-nav="faq">FAQ &amp; Tech</a>
+      <a href="#story" data-nav="story">Keep forever</a>
     </nav>
-    <button class="person-chip" id="personChip" aria-label="Switch person">
-      <span class="avatar" id="chipAvatar">G</span>
-      <span id="chipName">Grandpa</span>
-      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-    </button>
+    <div class="top-right">
+      <button class="person-chip app-only" id="personChip" aria-label="Switch person">
+        <span class="avatar" id="chipAvatar">·</span>
+        <span id="chipName">…</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+      <button class="icon-btn app-only" id="settingsBtn" aria-label="Your family space">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20c1.5-3.5 4.4-5 8-5s6.5 1.5 8 5"/><circle cx="12" cy="8.5" r="3.8"/></svg>
+      </button>
+      <button class="pill pill-ink landing-only" data-start>Start free</button>
+    </div>
   </header>
 
   <main>
-    <!-- ── HOME ──────────────────────────────────────────── -->
-    <section class="view" id="view-home">
-      <div class="hero">
-        <p class="eyebrow rise" style="--d:0">A private family archive</p>
-        <h1 class="display"><span class="line"><span style="--d:1"><span id="heroName">Grandpa</span>’s stories,</span></span><span class="line"><span style="--d:2"><em>in their own words.</em></span></span></h1>
-        <p class="lede rise" style="--d:3">Record the <span class="tag tag-ember">recipes</span>, <span class="tag tag-cobalt">stories</span> and <span class="tag tag-ember">advice</span> only they know. Ask about them any time, and hear the answer read back.</p>
-        <div class="hero-actions rise" style="--d:4">
-          <a class="pill pill-ember" href="#record" data-nav="record">Record a memory</a>
-          <a class="pill pill-slate" href="#ask" data-nav="ask">Ask a question</a>
+    <!-- ── LANDING (first visit) ─────────────────────────── -->
+    <section class="view" id="view-landing" hidden>
+      <div class="landing-hero wrap">
+        <div class="landing-copy">
+          <p class="eyebrow rise" style="--d:0">For grandparents, parents, and you</p>
+          <h1 class="display rise" style="--d:1">The stories only they know, <em>kept in their own words.</em></h1>
+          <p class="lede rise" style="--d:2">Press record and let them talk: the recipe, the wedding, the advice they always repeat. Memoria writes it down, keeps it safe, and lets the whole family ask about it years from now.</p>
+          <div class="hero-actions rise" style="--d:3">
+            <button class="pill pill-accent big" data-start>Record the first story — free</button>
+            <a class="text-link" href="#how">See how it works</a>
+          </div>
+          <p class="fineprint rise" style="--d:4">No sign-up. No app to install. Works in any language.</p>
         </div>
-
-        <div class="stats rise" id="stats" style="--d:5">
-          <div><b id="statCount">0</b><span>memories</span></div>
-          <div><b id="statRecipes">0</b><span>recipes</span></div>
-          <div><b id="statPeople">0</b><span>people named</span></div>
-        </div>
-
-        <div class="tech-pills rise" style="--d:6">
-          <span class="tech-pill"><span class="pill-dot pill-dot-voice"></span>Voice: <strong id="heroVoiceLabel">Grandma Clo</strong> (Warm Storyteller)</span>
-          <span class="tech-pill"><span class="pill-dot pill-dot-ai"></span>AI: <strong id="heroAiLabel">Google Gemma 4</strong> + Backboard RAG</span>
-          <span class="tech-pill"><span class="pill-dot pill-dot-lock"></span>Privacy: <strong>100% Family Owned</strong> · SQLite</span>
+        <div class="landing-art rise" style="--d:2" aria-hidden="true">
+          <div class="polaroid p1"><span class="ph">“Fry the onions until they’re almost burnt. That’s the whole secret.”</span><span class="cap">Nani · 1968</span></div>
+          <div class="polaroid p2"><span class="ph">“Never sign anything the same day. Sleep on it.”</span><span class="cap">Dad · 1991</span></div>
+          <div class="polaroid p3"><span class="ph">“The lights went out mid-wedding, so we married by lantern.”</span><span class="cap">Grandpa · 1965</span></div>
         </div>
       </div>
 
-      <div class="band">
-        <div class="wrap">
-          <div class="section-head reveal">
-            <div>
-              <p class="eyebrow">The collection</p>
-              <h2 class="heading">Everything they’ve shared</h2>
-            </div>
-          </div>
+      <section class="how wrap" id="how">
+        <p class="eyebrow">How it works</p>
+        <ol class="steps">
+          <li class="reveal"><span class="step-n">1</span><h3>Sit with them and press record</h3><p>Pick a question if you need one: “What was your first job?” Then just listen. Talk as long as you like, in any language.</p></li>
+          <li class="reveal"><span class="step-n">2</span><h3>Memoria keeps the words</h3><p>Their voice becomes text, gets a title and a year, and goes into their album. The recording itself is deleted.</p></li>
+          <li class="reveal"><span class="step-n">3</span><h3>Ask about them, any time</h3><p>“How did Nani make the dal?” You’ll get the answer with the exact words she said, and which story they came from.</p></li>
+        </ol>
+      </section>
+
+      <section class="pricing wrap" id="pricing">
+        <div class="price-card reveal">
+          <p class="eyebrow">Free</p>
+          <p class="price">$0</p>
+          <ul><li>One person’s stories</li><li>Up to 15 memories</li><li>Ask questions any time</li><li>Download everything</li></ul>
+        </div>
+        <div class="price-card featured reveal">
+          <p class="eyebrow">Lifetime</p>
+          <p class="price">$19 <small>once, never again</small></p>
+          <ul><li>Everyone in the family</li><li>Unlimited memories</li><li>Hear stories in their own voice</li><li>A printable keepsake book</li></ul>
+          <button class="pill pill-accent" data-start>Start free, upgrade later</button>
+        </div>
+      </section>
+    </section>
+
+    <!-- ── ONBOARDING ───────────────────────────────────── -->
+    <section class="view" id="view-welcome" hidden>
+      <div class="wrap narrow welcome">
+        <p class="eyebrow">Let’s begin</p>
+        <h2 class="heading">Whose stories do you want to keep?</h2>
+        <div class="rel-chips" id="relChips" role="radiogroup" aria-label="Relationship">
+          <button type="button" data-rel="grandmother" data-name="Grandma">Grandma</button>
+          <button type="button" data-rel="grandfather" data-name="Grandpa">Grandpa</button>
+          <button type="button" data-rel="mother" data-name="Mom">Mom</button>
+          <button type="button" data-rel="father" data-name="Dad">Dad</button>
+          <button type="button" data-rel="myself" data-name="">My own</button>
+          <button type="button" data-rel="" data-name="">Someone else</button>
+        </div>
+        <form id="welcomeForm" class="welcome-form">
+          <label class="field"><span class="field-label">What do you call them?</span>
+            <input id="wName" required maxlength="40" placeholder="Nani, Dad, Aunt Rosa…" autocomplete="off"></label>
+          <label class="field"><span class="field-label">And your first name <small>(optional)</small></span>
+            <input id="wOwner" maxlength="40" placeholder="So family knows who started this" autocomplete="given-name"></label>
+          <button class="pill pill-accent big" type="submit">Open their album</button>
+          <p class="fineprint">This creates a private space just for your family. Nobody else can see it.</p>
+        </form>
+      </div>
+    </section>
+
+    <!-- ── HOME (album) ─────────────────────────────────── -->
+    <section class="view" id="view-home" hidden>
+      <div class="album-head wrap">
+        <div>
+          <p class="eyebrow" id="homeEyebrow">Their album</p>
+          <h1 class="display small"><span id="heroName">…</span>’s stories</h1>
+          <p class="lede" id="homeLede">Every story they’ve told, kept in their own words.</p>
+        </div>
+        <div class="album-actions">
+          <a class="pill pill-accent" href="#record" data-nav="record">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5"/></svg>Record a story</a>
+          <a class="pill pill-line" href="#ask" data-nav="ask">Ask about them</a>
+        </div>
+      </div>
+
+      <!-- Life thread: memories placed on a line by the year they happened -->
+      <div class="wrap">
+        <figure class="thread" id="thread" hidden>
+          <figcaption class="eyebrow">Their life, so far</figcaption>
+          <div class="thread-track" id="threadTrack"></div>
+        </figure>
+
+        <div class="toolbar">
           <div class="search">
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            <input id="searchInput" type="search" placeholder="Search memories — “biryani”, “1971”, “Nani”…" autocomplete="off">
+            <input id="searchInput" type="search" placeholder="Find a story — “biryani”, “1971”, “wedding”" autocomplete="off">
           </div>
           <div class="filters" id="filters" role="tablist"></div>
-          <div class="grid" id="memoryGrid"></div>
-          <div class="empty" id="emptyState" hidden>
-            <h3 class="heading-sm">Nothing here yet.</h3>
-            <p>The first memory takes about a minute. Sit with them, press record, and ask one of the prompts.</p>
-            <div class="hero-actions">
-              <a class="pill pill-ember" href="#record" data-nav="record">Record the first one</a>
-              <button class="pill pill-slate" id="seedBtn">Try with sample memories</button>
-            </div>
-          </div>
+        </div>
 
-          <!-- ── Architecture & FAQ (AEO & GEO optimized) ── -->
-          <div class="faq-band reveal" id="faq-section">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Clarity & Architecture</p>
-                <h2 class="heading">How Memoria works</h2>
-                <p class="muted">Built for families with open-source AI, zero corporate data harvesting, and complete privacy.</p>
-              </div>
-            </div>
-            <div class="faq-grid">
-              <article class="faq-card">
-                <span class="faq-badge">1. Concept</span>
-                <h3 class="faq-q">What is Memoria?</h3>
-                <p class="faq-a">Memoria is an open-source, private oral history archive. It enables families to record spoken stories, grandmother recipes, and generational advice, turning speech into searchable wisdom read aloud in their actual voices.</p>
-              </article>
-              <article class="faq-card">
-                <span class="faq-badge">2. Intelligence</span>
-                <h3 class="faq-q">Which AI models power the memories?</h3>
-                <p class="faq-a">Memoria uses <strong>Google Gemma 4 (31B)</strong> open-weight models for memory structuring and life tributes, <strong>Backboard.io</strong> for memory retrieval (RAG), <strong>ElevenLabs</strong> for speech-to-text (Scribe) and voice cloning, and <strong>Tinker</strong> for open-model backup inference.</p>
-              </article>
-              <article class="faq-card">
-                <span class="faq-badge">3. Ethics</span>
-                <h3 class="faq-q">How does voice cloning work with family consent?</h3>
-                <p class="faq-a">Memoria enforces strict consent: voice cloning is only activated after affirmative confirmation. Voice audio is processed with ElevenLabs and assigned exclusively to the private family archive. Raw audio is never used to train public foundation models.</p>
-              </article>
-              <article class="faq-card">
-                <span class="faq-badge">4. Sovereignty</span>
-                <h3 class="faq-q">Can our family export or print everything?</h3>
-                <p class="faq-a">Yes. Your family has 100% data sovereignty. All memories and metadata are stored in a local SQLite database, downloadable anytime as a standalone JSON file or printable as a keepsake book.</p>
-              </article>
-            </div>
+        <div class="grid" id="memoryGrid"></div>
+
+        <div class="empty" id="emptyState" hidden>
+          <div class="empty-art" aria-hidden="true">
+            <svg viewBox="0 0 160 100"><rect x="10" y="14" width="140" height="72" rx="8"/><rect x="34" y="30" width="92" height="30" rx="15"/><circle cx="56" cy="45" r="9"/><circle cx="104" cy="45" r="9"/><path d="M40 86l10-14h60l10 14"/></svg>
+          </div>
+          <h3 class="heading-sm">The album is empty, for now.</h3>
+          <p>The first story takes about a minute. Sit with them, press record, and ask one of the questions on the next screen.</p>
+          <div class="hero-actions">
+            <a class="pill pill-accent" href="#record" data-nav="record">Record the first story</a>
+            <button class="pill pill-line" id="seedBtn">Show me an example</button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ── RECORD ────────────────────────────────────────── -->
+    <!-- ── RECORD ───────────────────────────────────────── -->
     <section class="view" id="view-record" hidden>
       <div class="wrap narrow">
         <p class="eyebrow">Record</p>
-        <h2 class="heading">Just talk. <em>We’ll keep it.</em></h2>
-        <p class="muted">Pick a prompt if you need one. Speak naturally, in any language. The audio is turned into text and then deleted. Only the words are kept.</p>
+        <h2 class="heading">Just let <span class="pname">them</span> talk.</h2>
+        <p class="muted">Not sure where to start? Tap a question and Memoria will read it out loud.</p>
 
         <div class="prompts" id="prompts"></div>
 
-        <div class="recorder">
-          <div class="rec-glow" id="recGlow"></div>
-          <button class="rec-btn" id="recBtn" aria-label="Start recording">
-            <span class="rec-dot"></span>
+        <!-- Cassette: the reels turn while recording and the tape winds from left to right as time passes -->
+        <div class="deck" id="deck">
+          <button class="cassette" id="recBtn" aria-label="Start recording" aria-pressed="false">
+            <svg viewBox="0 0 320 200" aria-hidden="true">
+              <rect class="c-body" x="4" y="4" width="312" height="192" rx="16"/>
+              <rect class="c-label" x="28" y="22" width="264" height="104" rx="8"/>
+              <line class="c-rule" x1="44" y1="58" x2="276" y2="58"/>
+              <rect class="c-window" x="80" y="70" width="160" height="44" rx="22"/>
+              <circle class="tape tape-l" id="tapeL" cx="112" cy="92" r="19"/>
+              <circle class="tape tape-r" id="tapeR" cx="208" cy="92" r="9"/>
+              <g class="reel" id="reelL"><circle cx="112" cy="92" r="9"/><path d="M112 83v-3M112 101v3M103 92h-3M121 92h3"/></g>
+              <g class="reel" id="reelR"><circle cx="208" cy="92" r="9"/><path d="M208 83v-3M208 101v3M199 92h-3M217 92h3"/></g>
+              <path class="c-foot" d="M70 196l14-38h152l14 38"/>
+              <circle class="c-screw" cx="22" cy="22" r="3"/><circle class="c-screw" cx="298" cy="22" r="3"/>
+              <circle class="c-screw" cx="22" cy="178" r="3"/><circle class="c-screw" cx="298" cy="178" r="3"/>
+            </svg>
+            <span class="c-name" id="cName">…</span>
+            <span class="c-date" id="cDate"></span>
           </button>
-          <div class="rec-meta">
-            <span class="rec-label" id="recLabel">Tap to record</span>
+          <div class="deck-controls">
+            <span class="rec-light" aria-hidden="true"></span>
+            <span class="rec-label" id="recLabel">Tap the tape to start recording</span>
             <span class="rec-time" id="recTime">0:00</span>
           </div>
-          <canvas id="wave" width="600" height="60" aria-hidden="true"></canvas>
+          <div class="level" aria-hidden="true"><span id="levelBar"></span></div>
         </div>
 
         <label class="field">
-          <span class="field-label">What was said <small id="sttHint"></small></span>
-          <textarea id="transcript" rows="6" placeholder="Your words appear here as you speak. You can also just type the memory, then fix anything that’s wrong."></textarea>
+          <span class="field-label">Their words <small id="sttHint"></small></span>
+          <textarea id="transcript" rows="6" placeholder="As they talk, the words appear here. You can also type a story, and fix anything that’s wrong before saving."></textarea>
         </label>
 
         <div class="row-actions">
-          <button class="pill pill-slate" id="clearBtn">Clear</button>
-          <button class="pill pill-ember" id="saveBtn">Save memory</button>
+          <button class="pill pill-line" id="clearBtn">Start over</button>
+          <button class="pill pill-accent" id="saveBtn">Keep this story</button>
         </div>
 
+        <ol class="saving" id="saving" hidden aria-live="polite">
+          <li data-step="0">Listening to the words</li>
+          <li data-step="1">Giving it a title and a year</li>
+          <li data-step="2">Putting it in the album</li>
+        </ol>
         <div class="result" id="saveResult" hidden></div>
       </div>
     </section>
 
-    <!-- ── ASK ───────────────────────────────────────────── -->
+    <!-- ── ASK ──────────────────────────────────────────── -->
     <section class="view" id="view-ask" hidden>
       <div class="wrap narrow ask-wrap">
         <p class="eyebrow">Ask</p>
-        <h2 class="heading">Ask <span class="pname">Grandpa</span> anything.</h2>
-        <p class="muted">Answers come only from what they recorded, and each one shows which memory it came from. If they never said it, Memoria tells you so.</p>
+        <h2 class="heading">What would you like to know about <span class="pname">them</span>?</h2>
+        <p class="muted">Answers only come from stories <span class="pname">they</span> recorded. Under each answer you’ll see their exact words. If they never talked about it, Memoria will say so.</p>
 
         <div class="chat" id="chat" aria-live="polite"></div>
         <div class="suggestions" id="suggestions"></div>
 
         <form class="composer" id="chatForm">
-          <input id="chatInput" placeholder="What was the secret in the biryani?" autocomplete="off" enterkeyhint="send">
-          <label class="speak-toggle" title="Read answers aloud">
+          <input id="chatInput" placeholder="How did she make the dal?" autocomplete="off" enterkeyhint="send" maxlength="400">
+          <label class="speak-toggle" title="Read answers out loud">
             <input type="checkbox" id="speakToggle" checked>
             <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M16.5 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="sr-only">Read answers out loud</span>
           </label>
           <button class="send" type="submit" aria-label="Ask">
             <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -264,158 +250,165 @@
       </div>
     </section>
 
-    <!-- ── STORY ─────────────────────────────────────────── -->
+    <!-- ── KEEP FOREVER ─────────────────────────────────── -->
     <section class="view" id="view-story" hidden>
-      <div class="manifesto">
+      <div class="tribute-band">
         <div class="wrap narrow">
-          <p class="eyebrow eyebrow-light">Their story so far</p>
-          <h2 class="heading-lg" id="storyTitle">Grandpa</h2>
-          <p class="tribute" id="tribute">Record a few memories and a short tribute will appear here, written only from what they’ve shared.</p>
-          <button class="pill pill-white" id="refreshStory">Write it again</button>
+          <p class="eyebrow">A few words about <span class="pname">them</span></p>
+          <p class="tribute" id="tribute">Record a few stories and a short tribute will appear here, written only from what they’ve shared.</p>
+          <button class="pill pill-line on-dark" id="refreshStory">Write it again</button>
         </div>
       </div>
 
-      <div class="wrap">
-        <div class="card-grid">
-          <div class="pcard pcard-blue reveal">
-            <p class="eyebrow">Their voice</p>
-            <h3 class="heading-sm">Hear memories in their voice.</h3>
-            <p>Record about a minute of them talking, or upload an old voice note. Memoria clones the voice with ElevenLabs and uses it to read every memory back. It only works with their permission.</p>
-            <div class="voice-status" id="voiceStatus"></div>
-
-            <div class="curated-voices-section">
-              <span class="field-label">Curated Storyteller Voices <small>Powered by ElevenLabs</small></span>
-              <div class="preset-voices-grid" id="presetVoicesGrid"></div>
-            </div>
-
+      <div class="wrap keep-grid">
+        <article class="panel reveal">
+          <p class="eyebrow">Their voice</p>
+          <h3 class="heading-sm">Hear the stories in <span class="pname">their</span> voice.</h3>
+          <p>Record about a minute of them talking, or add an old voice note. From then on, every story can be read back in the voice you remember. Only with their permission.</p>
+          <div class="voice-status" id="voiceStatus"></div>
+          <div class="lock-note" id="voiceLock" hidden>Part of Lifetime. <button class="text-link" data-upgrade>Unlock for $19</button></div>
+          <div id="cloneArea">
             <div class="row-actions">
-              <button class="pill pill-ember" id="sampleRecBtn">Record a sample</button>
-              <label class="pill pill-slate file-pill">Upload audio
+              <button class="pill pill-accent" id="sampleRecBtn">Record their voice</button>
+              <label class="pill pill-line file-pill">Add a voice note
                 <input type="file" id="sampleFiles" accept="audio/*" multiple hidden>
               </label>
             </div>
             <ul class="sample-list" id="sampleList"></ul>
-            <label class="consent"><input type="checkbox" id="consentBox"> They agreed to have their voice recreated for the family.</label>
-            <button class="pill pill-ember" id="cloneBtn" disabled>Create their voice</button>
+            <label class="consent"><input type="checkbox" id="consentBox"> They said yes to having their voice used for the family.</label>
+            <button class="pill pill-accent" id="cloneBtn" disabled>Create their voice</button>
           </div>
+          <details class="reading-voices">
+            <summary>Until then, choose a reading voice</summary>
+            <div class="voice-options" id="presetVoicesGrid"></div>
+          </details>
+        </article>
 
-          <div class="pcard pcard-parchment reveal">
-            <p class="eyebrow">Yours to keep</p>
-            <h3 class="heading-sm">Download everything.</h3>
-            <p>Your family owns these memories. Download them as a file at any time, or print them as a keepsake book.</p>
-            <div class="row-actions">
-              <button class="pill pill-ember" id="exportBtn">Download (.json)</button>
-              <button class="pill pill-slate" id="printBtn">Print keepsake</button>
-            </div>
+        <article class="panel reveal">
+          <p class="eyebrow">Yours to keep</p>
+          <h3 class="heading-sm">Take everything with you.</h3>
+          <p>These stories belong to your family. Download them as a file any time, or print them as a keepsake book for the next birthday.</p>
+          <div class="row-actions">
+            <button class="pill pill-line" id="exportBtn">Download all stories</button>
+            <button class="pill pill-accent" id="printBtn">Print a keepsake book</button>
           </div>
+        </article>
 
-          <div class="pcard pcard-sage reveal">
-            <p class="eyebrow">Under the hood</p>
-            <h3 class="heading-sm">Open models, private by default.</h3>
-            <ul class="engine-list" id="engineList"></ul>
+        <article class="panel reveal">
+          <p class="eyebrow">Invite the family</p>
+          <h3 class="heading-sm">Let others add their stories too.</h3>
+          <p>Share your private family link with a brother, a cousin, an aunt. Anyone with the link can read, record and ask. Keep it within the family.</p>
+          <div class="row-actions">
+            <button class="pill pill-accent" id="shareLinkBtn">Copy the private link</button>
           </div>
-        </div>
+        </article>
       </div>
     </section>
+
+    <!-- ── Print-only keepsake ──────────────────────────── -->
+    <section class="keepsake" id="keepsake" aria-hidden="true"></section>
   </main>
 
-  <!-- ── Organized Footer (SEO & Trust Links) ──────────────── -->
-  <footer class="site-footer" role="contentinfo">
-    <div class="wrap footer-wrap">
-      <div class="footer-brand">
-        <a class="logo" href="#home" data-nav="home">memoria</a>
-        <p class="footer-desc">A private family archive preserving generational wisdom, recipes, and voices in their own words. Built for Hacktoberfest 2026 Weekend Challenge &amp; Week 1.</p>
-        <div class="footer-partner-strip">
-          <span class="partner-badge">Google Gemma 4</span>
-          <span class="partner-badge">ElevenLabs Voice AI</span>
-          <span class="partner-badge">Backboard.io</span>
-          <span class="partner-badge">Render</span>
-          <span class="partner-badge">Tinker</span>
-        </div>
-      </div>
-
-      <div class="footer-columns">
-        <div class="footer-col">
-          <p class="footer-col-title">Archive</p>
-          <ul>
-            <li><a href="#home" data-nav="home">Home &amp; Collection</a></li>
-            <li><a href="#record" data-nav="record">Record Spoken Memory</a></li>
-            <li><a href="#ask" data-nav="ask">Ask Questions</a></li>
-            <li><a href="#story" data-nav="story">Life Tribute &amp; Voice</a></li>
-            <li><a href="#faq-section">How Memoria Works</a></li>
-          </ul>
-        </div>
-
-        <div class="footer-col">
-          <p class="footer-col-title">Partner Stack</p>
-          <ul>
-            <li><a href="https://ai.google.dev/gemma" target="_blank" rel="noopener">Google Gemma Models</a></li>
-            <li><a href="https://elevenlabs.io" target="_blank" rel="noopener">ElevenLabs Voice AI</a></li>
-            <li><a href="https://docs.backboard.io" target="_blank" rel="noopener">Backboard Assistant RAG</a></li>
-            <li><a href="https://render.com" target="_blank" rel="noopener">Render Cloud Hosting</a></li>
-            <li><a href="https://tinker.run" target="_blank" rel="noopener">Tinker AI Inference</a></li>
-          </ul>
-        </div>
-
-        <div class="footer-col">
-          <p class="footer-col-title">Data &amp; Ethics</p>
-          <ul>
-            <li><a href="#story" data-nav="story">Export Archive (.json)</a></li>
-            <li><a href="#story" data-nav="story">Print Keepsake Book</a></li>
-            <li><a href="#story" data-nav="story">Consent-First Ethics</a></li>
-            <li><a href="https://dev.to" target="_blank" rel="noopener">Hacktoberfest 2026 DEV</a></li>
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div class="maker">
+        <img class="maker-photo" src="https://github.com/CoderRahul01.png?size=160" alt="Rahul Pandey" width="64" height="64" loading="lazy">
+        <div>
+          <p class="eyebrow">Who made this</p>
+          <p class="maker-text">Hi, I’m <b>Rahul Pandey</b>, a developer from West Bengal, India. I built Memoria so any family, anywhere, can keep the stories of the people they love before they’re forgotten. I hope it helps you keep yours.</p>
+          <ul class="maker-links">
+            <li><a href="https://x.com/rahulpandey187" target="_blank" rel="noopener">X</a></li>
+            <li><a href="https://www.linkedin.com/in/rahulpandey187" target="_blank" rel="noopener">LinkedIn</a></li>
+            <li><a href="https://dev.to/talkyrahulrp" target="_blank" rel="noopener">DEV</a></li>
+            <li><a href="https://github.com/CoderRahul01/memoria" target="_blank" rel="noopener">GitHub</a></li>
           </ul>
         </div>
       </div>
-    </div>
-
-    <div class="footer-bar wrap">
-      <p class="footer-copy">© 2026 Memoria · Open Source · Preserving family voices with love and absolute privacy.</p>
-      <p class="footer-disclaimer">Zero corporate training data · 100% Family Data Sovereignty · SQLite &amp; Local Audio</p>
+      <div class="footer-notes">
+        <p><b>Private by default.</b> Each family has its own space. Recordings are deleted once they become text. Nothing is sold or shown to anyone else.</p>
+        <p class="muted">Built with open AI models for DEV Hacktoberfest 2026. © 2026 Memoria.</p>
+      </div>
     </div>
   </footer>
 
-  <!-- ── Bottom tabs (mobile) ─────────────────────────────── -->
-  <nav class="tabbar" aria-label="Main">
-    <a href="#home" data-nav="home"><svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1v-8Z"/></svg>Home</a>
-    <a href="#record" data-nav="record"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Record</a>
+  <nav class="tabbar app-only" aria-label="Main">
+    <a href="#home" data-nav="home"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M5 17a3 3 0 0 1 3-3h11"/></svg>Stories</a>
+    <a href="#record" data-nav="record" class="tab-rec"><svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="8.5" cy="12" r="2"/><circle cx="15.5" cy="12" r="2"/></svg>Record</a>
     <a href="#ask" data-nav="ask"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5Z"/></svg>Ask</a>
-    <a href="#story" data-nav="story"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M5 17a3 3 0 0 1 3-3h11"/></svg>Story</a>
+    <a href="#story" data-nav="story"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.6-7 10-7 10Z"/></svg>Keep</a>
   </nav>
 
-  <!-- ── Memory sheet ─────────────────────────────────────── -->
+  <!-- Memory sheet -->
   <div class="sheet-backdrop" id="memorySheet" hidden>
-    <article class="sheet" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <article class="sheet letter" role="dialog" aria-modal="true" aria-labelledby="mTitle">
       <button class="sheet-close" data-close aria-label="Close">×</button>
       <p class="eyebrow" id="mMeta"></p>
       <h3 class="heading" id="mTitle"></h3>
-      <div class="tags" id="mTags"></div>
       <p class="m-content" id="mContent"></p>
+      <div class="tags" id="mTags"></div>
       <audio id="mAudio" controls hidden></audio>
       <div class="row-actions">
-        <button class="pill pill-slate danger" id="mDelete">Delete</button>
-        <button class="pill pill-ember" id="mPlay">Listen</button>
+        <button class="pill pill-line danger" id="mDelete">Delete</button>
+        <button class="pill pill-accent" id="mPlay">Listen</button>
       </div>
     </article>
   </div>
 
-  <!-- ── Person sheet ─────────────────────────────────────── -->
+  <!-- Person sheet -->
   <div class="sheet-backdrop" id="personSheet" hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pTitle">
       <button class="sheet-close" data-close aria-label="Close">×</button>
-      <p class="eyebrow">Whose memories?</p>
-      <h3 class="heading-sm" id="pTitle">Choose a loved one</h3>
+      <p class="eyebrow">Whose stories?</p>
+      <h3 class="heading-sm" id="pTitle">Choose a person</h3>
       <ul class="person-list" id="personList"></ul>
       <form class="add-person" id="addPersonForm">
-        <input id="newName" placeholder="Name — e.g. Nani, Dad, Aunt Rosa" required>
-        <input id="newRel" placeholder="Relationship (optional)">
-        <button class="pill pill-ember" type="submit">Add</button>
+        <input id="newName" placeholder="Add someone — Nani, Dad, Aunt Rosa" required maxlength="40">
+        <input id="newRel" placeholder="Who are they to you? (optional)" maxlength="40">
+        <button class="pill pill-accent" type="submit">Add</button>
       </form>
     </div>
   </div>
 
-  <div class="toast" id="toast" role="status" hidden></div>
+  <!-- Settings sheet -->
+  <div class="sheet-backdrop" id="settingsSheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sTitle">
+      <button class="sheet-close" data-close aria-label="Close">×</button>
+      <p class="eyebrow">Your family space</p>
+      <h3 class="heading-sm" id="sTitle">Started by <span id="sOwner">you</span></h3>
+      <div class="plan-row" id="planRow"></div>
+      <div class="key-box">
+        <p><b>Your private link.</b> This is the only key to your family’s stories. Save it somewhere safe, like a note to yourself, so you can open the album on any phone or computer.</p>
+        <div class="row-actions">
+          <button class="pill pill-accent" id="copyLinkBtn">Copy private link</button>
+          <button class="pill pill-line" id="emailLinkBtn">Email it to myself</button>
+        </div>
+      </div>
+      <form class="add-person" id="ownerForm">
+        <input id="ownerInput" placeholder="Your first name" maxlength="40">
+        <button class="pill pill-line" type="submit">Save name</button>
+      </form>
+    </div>
+  </div>
 
+  <!-- Upgrade sheet -->
+  <div class="sheet-backdrop" id="upgradeSheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="uTitle">
+      <button class="sheet-close" data-close aria-label="Close">×</button>
+      <p class="eyebrow">Memoria Lifetime</p>
+      <h3 class="heading" id="uTitle">Keep every story, for everyone. <em>Pay once.</em></h3>
+      <p class="muted" id="uReason">You’ve reached the free limit.</p>
+      <ul class="check-list">
+        <li>Everyone in the family, each with their own album</li>
+        <li>Unlimited stories, forever</li>
+        <li>Hear stories read in their own voice</li>
+        <li>A printable keepsake book</li>
+      </ul>
+      <button class="pill pill-accent big" id="buyBtn">Unlock Lifetime for $19</button>
+      <p class="fineprint">One payment. No subscription. Secure checkout by Dodo Payments.</p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
   <script src="app.js"></script>
 </body>
 </html>

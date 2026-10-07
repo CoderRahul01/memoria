@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Memoria Pulse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450..600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #F5EFE4; --surface: #FCFAF6; --ink: #221C17; --ink-2: #5A4F45; --ink-3: #8C7F72; --line: #E2D7C6; --grid: #EDE5D8;
+      --s1: #B4472C; --s2: #1F6E9C; --live: #3F7A4E; --warn: #A86A00; --bad: #B4472C;
+      --serif: 'Fraunces', Georgia, serif; --sans: 'Instrument Sans', system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --bg: #171310; --surface: #1F1A16; --ink: #F3E9DB; --ink-2: #C9BBA8; --ink-3: #8F8273; --line: #352C25; --grid: #2A231E; --s1: #D0603F; --s2: #3A8CC4; --live: #6DBE82; --warn: #E0A33A; --bad: #E07A5F; }
+    }
+    :root[data-theme="dark"] { --bg: #171310; --surface: #1F1A16; --ink: #F3E9DB; --ink-2: #C9BBA8; --ink-3: #8F8273; --line: #352C25; --grid: #2A231E; --s1: #D0603F; --s2: #3A8CC4; --live: #6DBE82; --warn: #E0A33A; --bad: #E07A5F; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+    .wrap { width: min(1240px, 100% - 32px); margin: 0 auto; padding: 28px 0 64px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+    h1 { font: 500 30px/1.1 var(--serif); margin: 0; }
+    h1 small { font: 500 13px var(--sans); color: var(--ink-3); margin-left: 10px; }
+    h2 { font: 600 12px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 14px; }
+    .meta { color: var(--ink-3); font-size: 13px; display: flex; gap: 14px; align-items: center; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--live); display: inline-block; margin-right: 6px; animation: p 2s ease-in-out infinite; }
+    @keyframes p { 50% { opacity: .3; } }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+    .tile { grid-column: span 3; }
+    .tile .v { font: 500 34px/1.05 var(--serif); font-variant-numeric: tabular-nums; }
+    .tile .l { color: var(--ink-2); font-weight: 500; margin-top: 4px; }
+    .tile .d { color: var(--ink-3); font-size: 12.5px; margin-top: 2px; }
+    .tile.live .v { color: var(--live); }
+    .span-8 { grid-column: span 8; } .span-4 { grid-column: span 4; } .span-6 { grid-column: span 6; } .span-12 { grid-column: span 12; }
+    @media (max-width: 900px) { .tile { grid-column: span 6; } .span-8, .span-4, .span-6 { grid-column: span 12; } }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th { text-align: left; font-weight: 600; color: var(--ink-3); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+    td { padding: 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+    td.num, th.num { text-align: right; }
+    .scroll { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+    .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--grid); color: var(--ink-2); }
+    .chip.life { background: var(--s1); color: #fff; }
+    .ok { color: var(--live); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+    .status::before { content: '●'; margin-right: 6px; }
+    .empty { color: var(--ink-3); padding: 12px 0; }
+    .legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--ink-2); margin: -4px 0 8px; }
+    .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+    .chart { position: relative; }
+    .chart svg { width: 100%; height: 220px; display: block; overflow: visible; }
+    .chart .axis { fill: var(--ink-3); font-size: 11px; }
+    .chart .gl { stroke: var(--grid); stroke-width: 1; }
+    .tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12.5px; padding: 8px 10px; border-radius: 8px; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); opacity: 0; transition: opacity .12s; }
+    .tip b { font-weight: 600; }
+    .funnel-row { display: grid; grid-template-columns: 140px 1fr 70px; gap: 12px; align-items: center; padding: 6px 0; }
+    .funnel-row .bar { height: 22px; border-radius: 0 4px 4px 0; background: var(--s1); transform-origin: left; animation: g .8s cubic-bezier(.2,.7,.2,1) both; }
+    @keyframes g { from { transform: scaleX(0); } }
+    .funnel-row .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+    .feed { list-style: none; padding: 0; margin: 0; max-height: 420px; overflow-y: auto; }
+    .feed li { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--grid); }
+    .feed time { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+    .login { max-width: 360px; margin: 18vh auto; text-align: center; }
+    .login input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; margin: 16px 0 10px; }
+    .login button, .btn { padding: 10px 18px; border-radius: 999px; border: 0; background: var(--s1); color: #fff; font: 600 14px var(--sans); cursor: pointer; }
+    .btn.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--line); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="login" id="login">
+    <h1>Memoria Pulse</h1>
+    <p style="color:var(--ink-2)">Founder dashboard. Enter your admin key.</p>
+    <form id="loginForm"><input id="keyInput" type="password" placeholder="Admin key" autocomplete="current-password" required><button>Open</button></form>
+    <p id="loginErr" class="bad" hidden></p>
+  </div>
+
+  <div class="wrap" id="dash" hidden>
+    <header>
+      <h1>Memoria Pulse <small>founder dashboard</small></h1>
+      <div class="meta"><span><span class="pulse"></span>Live · refreshes every 15s</span><span id="updated"></span><button class="btn ghost" id="logout">Lock</button></div>
+    </header>
+
+    <section class="grid" id="tiles"></section>
+
+    <section class="grid" style="margin-top:16px">
+      <div class="card span-8">
+        <h2>Who’s here right now</h2>
+        <div class="scroll"><table id="liveTable"></table></div>
+      </div>
+      <div class="card span-4">
+        <h2>Where families are</h2>
+        <table id="regions"></table>
+      </div>
+
+      <div class="card span-6">
+        <h2>Active families per day · last 30 days</h2>
+        <div class="chart" id="chartActive"></div>
+      </div>
+      <div class="card span-6">
+        <h2>Stories and questions per day</h2>
+        <div class="legend"><span><i style="background:var(--s1)"></i>Stories kept</span><span><i style="background:var(--s2)"></i>Questions asked</span></div>
+        <div class="chart" id="chartUse"></div>
+      </div>
+
+      <div class="card span-6">
+        <h2>Journey · all time</h2>
+        <div id="funnel"></div>
+      </div>
+      <div class="card span-6">
+        <h2>How it’s performing · last 7 days</h2>
+        <table id="perf"></table>
+      </div>
+
+      <div class="card span-6">
+        <h2>Latest activity</h2>
+        <ul class="feed" id="feed"></ul>
+      </div>
+      <div class="card span-6">
+        <h2>Families · most recent first</h2>
+        <div class="scroll"><table id="families"></table></div>
+      </div>
+    </section>
+  </div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nf = n => (n ?? 0).toLocaleString();
+let key = null; try { key = sessionStorage.getItem('memoria.admin'); } catch {}
+
+const VIEW = { home: 'reading the album', record: 'recording a story', ask: 'asking a question', story: 'on Keep forever' };
+const EVENT = {
+  family_created: 'opened a new family space', onboarded: 'finished setup', person_added: 'added a loved one',
+  memory_saved: 'kept a story', transcribed: 'recording turned into text', question_asked: 'asked a question',
+  tribute: 'read the tribute', voice_cloned: 'created a voice', listen: 'listened to a story', checkout_started: 'opened checkout',
+  purchase: 'bought Lifetime 🎉', upgrade_viewed: 'looked at Lifetime', share_link: 'shared the family link', print: 'printed the keepsake',
+  export: 'downloaded stories', memory_deleted: 'deleted a story', prompt_used: 'used a question prompt', error: 'hit an error', view: 'opened a screen'
+};
+const ago = iso => { const s = Math.max(0, (Date.now() - new Date(iso)) / 1000); return s < 60 ? `${s | 0}s` : s < 3600 ? `${s / 60 | 0}m` : s < 86400 ? `${s / 3600 | 0}h` : `${s / 86400 | 0}d`; };
+const who = (name, fam) => name ? `${esc(name)} <span style="color:var(--ink-3)">· ${esc(fam)}</span>` : `<span style="color:var(--ink-3)">Family ${esc(fam)}</span>`;
+
+async function load() {
+  const res = await fetch('/api/admin/stats', { headers: { 'X-Admin-Key': key } });
+  if (res.status === 401) { lock('That key didn’t work.'); return; }
+  const d = await res.json();
+  $('#login').hidden = true; $('#dash').hidden = false;
+  render(d);
+}
+
+function render(d) {
+  const t = d.totals;
+  const revenue = t.paying * 19;
+  const voicePct = t.memories ? Math.round(100 * t.voice_memories / t.memories) : 0;
+  const tiles = [
+    ['live', d.live.length, 'Using it right now', 'active in the last 75 seconds'],
+    ['', t.families, 'Families (users)', `+${t.families_24h} in the last 24h`],
+    ['', t.dau, 'Active today', `${t.wau} active this week`],
+    ['', t.memories, 'Stories kept', `${voicePct}% recorded by voice · +${t.memories_24h} today`],
+    ['', t.questions, 'Questions asked', `${t.loved_ones} loved ones in albums`],
+    ['', t.paying, 'Lifetime buyers', `$${nf(revenue)} revenue`],
+    ['', t.voices, 'Voices created', 'family members’ own voices'],
+    ['', d.funnel.opened ? Math.round(100 * d.funnel.recorded / d.funnel.opened) + '%' : '—', 'Record a first story', 'of families who open Memoria']
+  ];
+  $('#tiles').innerHTML = tiles.map(([c, v, l, s]) => `<div class="card tile ${c}"><div class="v">${typeof v === 'number' ? nf(v) : v}</div><div class="l">${l}</div><div class="d">${s}</div></div>`).join('');
+
+  $('#liveTable').innerHTML = d.live.length
+    ? `<tr><th>Who</th><th>Doing</th><th>About</th><th>Where</th><th>Device</th><th>Plan</th><th class="num">Seen</th></tr>` +
+      d.live.map(p => `<tr><td>${who(p.name, p.family)}</td><td>${esc(VIEW[p.view] || p.view)}</td><td>${esc(p.person || '—')}</td><td>${esc(p.timezone || '—')}</td><td>${esc(p.device || '—')}</td><td><span class="chip ${p.plan === 'lifetime' ? 'life' : ''}">${esc(p.plan)}</span></td><td class="num">${p.seconds_ago}s ago</td></tr>`).join('')
+    : `<tr><td class="empty">Nobody is using Memoria at this moment.</td></tr>`;
+
+  $('#regions').innerHTML = d.regions.length ? d.regions.map(r => `<tr><td>${esc(r.region)}</td><td class="num">${nf(r.n)}</td></tr>`).join('') : `<tr><td class="empty">No families yet.</td></tr>`;
+
+  bars($('#chartActive'), d.growth.map(g => ({ x: g.day, y: g.active, extra: `${g.new_families} new` })), 'active families');
+  lines($('#chartUse'), d.growth, [{ k: 'memories', label: 'Stories', c: 'var(--s1)' }, { k: 'questions', label: 'Questions', c: 'var(--s2)' }]);
+
+  const f = d.funnel, steps = [['Opened Memoria', f.opened], ['Kept a story', f.recorded], ['Asked a question', f.asked], ['Opened checkout', f.checkout], ['Bought Lifetime', f.paid]];
+  const top = Math.max(1, f.opened);
+  $('#funnel').innerHTML = steps.map(([l, n], i) => `<div class="funnel-row"><span>${l}</span><div><div class="bar" style="width:${Math.max(n ? 1.5 : 0, 100 * n / top)}%;opacity:${1 - i * 0.14};animation-delay:${i * 80}ms"></div></div><span class="n">${nf(n)} · ${Math.round(100 * n / top)}%</span></div>`).join('');
+
+  const NAMES = { question_asked: 'Answering a question', memory_saved: 'Keeping a story', transcribed: 'Turning voice into text', tribute: 'Writing the tribute', voice_cloned: 'Creating a voice' };
+  $('#perf').innerHTML = `<tr><th>Step</th><th class="num">Count</th><th class="num">Typical</th><th class="num">Slowest 5%</th><th class="num">Errors</th></tr>` +
+    (d.perf.length ? d.perf.map(p => {
+      const cls = p.error_pct > 5 ? 'bad' : p.p95 > 15000 ? 'warn' : 'ok';
+      const lbl = p.error_pct > 5 ? 'Failing' : p.p95 > 15000 ? 'Slow' : 'Healthy';
+      return `<tr><td>${esc(NAMES[p.name] || p.name)}</td><td class="num">${nf(p.n)}</td><td class="num">${(p.p50 / 1000).toFixed(1)}s</td><td class="num">${(p.p95 / 1000).toFixed(1)}s</td><td class="num"><span class="status ${cls}">${p.error_pct}% · ${lbl}</span></td></tr>`;
+    }).join('') : `<tr><td class="empty" colspan="5">No timed activity this week.</td></tr>`) +
+    `<tr><td colspan="5" style="color:var(--ink-3)">Server up for ${Math.floor(d.uptime_s / 3600)}h ${Math.floor(d.uptime_s % 3600 / 60)}m</td></tr>`;
+
+  $('#feed').innerHTML = d.recent.filter(e => e.name !== 'view').map(e => `<li><time>${ago(e.created_at)}</time><span>${who(e.owner_name, e.family)} ${esc(EVENT[e.name] || e.name)}${e.ms ? ` <span style="color:var(--ink-3)">· ${(e.ms / 1000).toFixed(1)}s</span>` : ''}${e.ok ? '' : ' <span class="bad">failed</span>'}</span><span></span></li>`).join('') || '<li class="empty">No activity yet.</li>';
+
+  $('#families').innerHTML = `<tr><th>Family</th><th>Plan</th><th class="num">Loved ones</th><th class="num">Stories</th><th>Where</th><th class="num">Joined</th><th class="num">Last seen</th></tr>` +
+    d.families.map(f => `<tr><td>${who(f.owner_name, f.family)}</td><td><span class="chip ${f.plan === 'lifetime' ? 'life' : ''}">${esc(f.plan)}</span></td><td class="num">${f.loved_ones}</td><td class="num">${f.memories}</td><td>${esc(f.timezone || '—')}</td><td class="num">${ago(f.created_at)}</td><td class="num">${ago(f.last_seen)}</td></tr>`).join('');
+
+  $('#updated').textContent = 'Updated ' + new Date(d.generated_at).toLocaleTimeString();
+}
+
+// ── Charts (inline SVG, hover tooltips) ──────────────────────────
+const W = 600, H = 220, P = { l: 30, r: 8, t: 10, b: 24 };
+function frame(max) {
+  const ticks = [0, Math.ceil(max / 2), max];
+  const y = v => P.t + (H - P.t - P.b) * (1 - v / max);
+  return { y, grid: ticks.map(v => `<line class="gl" x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join('') };
+}
+const short = d => new Date(d + 'T00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+function tipOn(el, svg, fn) {
+  const tip = document.createElement('div'); tip.className = 'tip'; el.appendChild(tip);
+  svg.addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * W;
+    const out = fn(x); if (!out) return;
+    tip.innerHTML = out.html; tip.style.left = (out.x / W * r.width) + 'px'; tip.style.top = (out.y / H * r.height) + 'px'; tip.style.opacity = 1;
+  });
+  svg.addEventListener('mouseleave', () => (tip.style.opacity = 0));
+}
+function bars(el, data, unit) {
+  const max = Math.max(2, ...data.map(d => d.y)), { y, grid } = frame(max);
+  const bw = (W - P.l - P.r) / data.length;
+  const rects = data.map((d, i) => {
+    const h = y(0) - y(d.y), x = P.l + i * bw + 1;
+    return d.y ? `<path d="M${x},${y(0)} v${-(h - 4)} q0,-4 4,-4 h${bw - 10} q4,0 4,4 v${h - 4} z" fill="var(--s1)"/>` : '';
+  }).join('');
+  const labels = [0, Math.floor(data.length / 2), data.length - 1].map(i => `<text class="axis" x="${P.l + i * bw + bw / 2}" y="${H - 6}" text-anchor="middle">${short(data[i].x)}</text>`).join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Active families per day">${grid}${rects}${labels}</svg>`;
+  tipOn(el, el.querySelector('svg'), x => {
+    const i = Math.min(data.length - 1, Math.max(0, Math.floor((x - P.l) / bw))), d = data[i];
+    return { x: P.l + i * bw + bw / 2, y: y(d.y), html: `<b>${short(d.x)}</b><br>${d.y} ${unit} · ${d.extra}` };
+  });
+}
+function lines(el, data, series) {
+  const max = Math.max(2, ...data.flatMap(d => series.map(s => d[s.k]))), { y, grid } = frame(max);
+  const step = (W - P.l - P.r) / (data.length - 1), X = i => P.l + i * step;
+  const paths = series.map(s => `<path d="${data.map((d, i) => `${i ? 'L' : 'M'}${X(i)},${y(d[s.k])}`).join('')}" fill="none" stroke="${s.c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="${W - P.r}" y="${y(data.at(-1)[s.k]) - 6}" text-anchor="end" style="fill:var(--ink-2);font-size:11px">${s.label} ${data.at(-1)[s.k]}</text>`).join('');
+  const labels = [0, Math.floor(data.length / 2), data.length - 1].map(i => `<text class="axis" x="${X(i)}" y="${H - 6}" text-anchor="middle">${short(data[i].day)}</text>`).join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Stories and questions per day">${grid}${paths}${labels}<line id="xh" class="gl" y1="${P.t}" y2="${H - P.b}" style="stroke:var(--ink-3);opacity:0"/></svg>`;
+  const svg = el.querySelector('svg'), xh = svg.querySelector('#xh');
+  tipOn(el, svg, x => {
+    const i = Math.min(data.length - 1, Math.max(0, Math.round((x - P.l) / step))), d = data[i];
+    xh.setAttribute('x1', X(i)); xh.setAttribute('x2', X(i)); xh.style.opacity = .5;
+    return { x: X(i), y: P.t + 10, html: `<b>${short(d.day)}</b><br>${series.map(s => `${s.label}: ${d[s.k]}`).join('<br>')}` };
+  });
+  svg.addEventListener('mouseleave', () => (xh.style.opacity = 0));
+}
+
+function lock(msg) {
+  key = null; try { sessionStorage.removeItem('memoria.admin'); } catch {}
+  $('#dash').hidden = true; $('#login').hidden = false;
+  $('#loginErr').hidden = !msg; $('#loginErr').textContent = msg || '';
+}
+$('#loginForm').addEventListener('submit', e => {
+  e.preventDefault();
+  key = $('#keyInput').value.trim();
+  try { sessionStorage.setItem('memoria.admin', key); } catch {}
+  load().catch(() => lock('Couldn’t reach the server.'));
+});
+$('#logout').addEventListener('click', () => lock());
+if (key) load().catch(() => lock());
+setInterval(() => key && !document.hidden && load().catch(() => {}), 15000);
+</script>
+</body>
+</html>

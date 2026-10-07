@@ -12,16 +12,16 @@ const { configured } = require('./env');
 
 const BASE = 'https://api.elevenlabs.io/v1';
 const API_KEY = configured('ELEVENLABS_API_KEY');
-// Default to Grandma Clo (warm elderly storyteller) or configured ELEVENLABS_VOICE_ID
+// Default reading voice (gentle, older woman) unless ELEVENLABS_VOICE_ID is set
 const DEFAULT_VOICE_ID = configured('ELEVENLABS_VOICE_ID') || 'EMuO6fFLrXKOryHzij6K'; 
 const STT_MODEL = process.env.ELEVENLABS_STT_MODEL || 'scribe_v1';
 const TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || 'eleven_multilingual_v2';
 
+// Reading voices for families who haven't recorded their loved one's own voice yet.
 const PRESET_VOICES = [
-  { id: 'EMuO6fFLrXKOryHzij6K', name: 'Grandma Clo', tag: 'Elderly Storyteller', description: 'Warm, maternal elder with nostalgic warmth & gentle pace' },
-  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'Grandpa George', tag: 'Kind Grandfather', description: 'Calm, comforting grandfather cadence' },
-  { id: 'VR6AewLTigWG4xSOukaG', name: 'Uncle Arnold', tag: 'Reflective Elder', description: 'Clear, seasoned, classic memoir narration' },
-  { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', tag: 'Classic Narrator', description: 'Steady, neutral voice for archive readings' }
+  { id: 'EMuO6fFLrXKOryHzij6K', name: 'Gentle, older woman', description: 'Soft and unhurried' },
+  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'Calm, older man', description: 'Low and steady' },
+  { id: 'pNInz6obpgDQGcFmaJgB', name: 'Clear narrator', description: 'Neutral, easy to follow' }
 ];
 
 const AUDIO_DIR = path.join(__dirname, '../public/audio');
