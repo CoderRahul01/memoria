@@ -150,6 +150,8 @@ body:not(.mode-landing) .landing-only { display: none !important; }
   opacity: 0; animation: settle 1.1s var(--out) .2s forwards; --r: -.6deg; }
 .demo-frame video { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 586; border-radius: 3px; background: var(--night); }
 .demo-frame figcaption { position: absolute; left: 22px; bottom: 14px; font: 600 24px/1 var(--hand); color: var(--ink-2); }
+.demo-yt { position: absolute; right: 22px; bottom: 16px; font: 600 14px var(--sans); color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 4px; }
+.demo-yt:hover { text-decoration-color: var(--accent); }
 .demo-sound { position: absolute; right: 26px; top: 26px; border: 0; border-radius: var(--r-chip); padding: 9px 16px; font: 600 14px var(--sans);
   background: rgb(34 28 23 / 72%); color: var(--paper); backdrop-filter: blur(6px); transition: background-color .2s; }
 .demo-sound:hover { background: rgb(34 28 23 / 88%); }

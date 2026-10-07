@@ -83,13 +83,25 @@ function show(view) {
   observeReveals();
 }
 
+// The homepage is always the front door: the bare address (and its #demo / #how / #pricing
+// sections) shows it to everyone. The app lives at #home, #record, #ask and #story.
+const LANDING_ANCHORS = ['demo', 'how', 'pricing'];
 function route() {
-  if (!state.key) {
-    show(location.hash === '#start' ? 'welcome' : 'landing');
+  const hash = location.hash.slice(1);
+  $$('.landing-only[data-start]').forEach(b => (b.textContent = state.key ? 'Open my album' : 'Start free'));
+  if (!hash || LANDING_ANCHORS.includes(hash) || (!state.key && hash !== 'start')) {
+    show('landing');
+    route.booted = true;
+    if (LANDING_ANCHORS.includes(hash)) requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth' }));
+    return;
+  }
+  if (hash === 'start') {
+    if (state.key && state.persons.length) { location.replace('#record'); return; }
+    show('welcome');
     route.booted = true;
     return;
   }
-  const view = APP_VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
+  const view = APP_VIEWS.includes(hash) ? hash : 'home';
   state.view = view;
   show(view);
   route.booted = true;
@@ -119,7 +131,9 @@ function forgetFamily() {
 
 const privateLink = () => `${location.origin}/#k=${state.key}`;
 
-$$('[data-start]').forEach(b => b.addEventListener('click', () => { location.hash = 'start'; }));
+$$('[data-start]').forEach(b => b.addEventListener('click', () => {
+  location.hash = !state.key ? 'start' : b.classList.contains('landing-only') ? 'home' : 'record';
+}));
 
 $('#relChips').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -190,7 +204,7 @@ async function loadPersons() {
   const saved = lsGet('memoria.person');
   const found = state.persons.find(p => p.name === saved) || state.persons[0];
   if (found) await setPerson(found, true);
-  else location.hash = 'start';
+  else if (APP_VIEWS.includes(location.hash.slice(1))) location.hash = 'start';
 }
 
 async function setPerson(p, reload = true) {
@@ -887,7 +901,7 @@ async function boot() {
   try {
     await loadFamily();
     await loadPersons();
-    route();
+    route(); // the bare address keeps showing the homepage
     if (paid) waitForLifetime();
   } catch (err) { fail(err); }
 }

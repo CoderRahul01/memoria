@@ -5,7 +5,7 @@
 Press record and let them talk. Memoria writes it down word for word, keeps the real recording,
 and lets the whole family ask about it years from now, then hear them say the answer.
 
-**Live:** https://memoria-family.vercel.app · **Demo (2 min):** https://youtu.be/n9L1O6QPaQo
+**Live:** https://memoria-family.vercel.app · **Demo (2 min):** https://youtu.be/At-VTzgk2JI · **Write-up:** [on DEV](https://dev.to/talkyrahulrp/i-built-a-place-to-keep-the-stories-only-one-person-in-your-family-knows-21cn)
 
 ![Memoria](public/media/og-card.png)
 
