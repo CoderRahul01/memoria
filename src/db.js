@@ -177,6 +177,11 @@ function searchMemories(familyId, query, personName) {
   return q(`SELECT m.*, EXISTS (SELECT 1 FROM recordings r WHERE r.memory_id = m.id) AS has_voice, (SELECT r.duration_s FROM recordings r WHERE r.memory_id = m.id) AS voice_seconds FROM memories m WHERE m.family_id = $1 AND m.person_name = $2
             AND (m.title ILIKE $3 OR m.content ILIKE $3 OR m.tags::text ILIKE $3) ORDER BY m.created_at DESC`, [familyId, personName, like]);
 }
+const updateMemory = (familyId, id, { title, content, memory_date }) => one(
+  `UPDATE memories SET title = COALESCE($3, title), content = COALESCE($4, content),
+     memory_date = CASE WHEN $6 THEN $5 ELSE memory_date END
+   WHERE family_id = $1 AND id = $2 RETURNING id`,
+  [familyId, id, title ?? null, content ?? null, memory_date ?? null, memory_date !== undefined]);
 const deleteMemory = (familyId, id) => q('DELETE FROM memories WHERE family_id = $1 AND id = $2', [familyId, id]);
 const updateMemoryTTS = (id, url) => q('UPDATE memories SET tts_url = $2 WHERE id = $1', [id, url]);
 
@@ -196,6 +201,6 @@ module.exports = {
   pool, q, one, initDB,
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime,
   getAllPersons, getPerson, savePerson, updatePersonAssistant, updatePersonVoiceId,
-  saveMemory, getMemory, getAllMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
+  saveMemory, updateMemory, getMemory, getAllMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
   heartbeat, logEvent, setCredit
 };

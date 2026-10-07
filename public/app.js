@@ -66,6 +66,7 @@ function busy(btn, on) { btn.classList.toggle('busy', on); btn.disabled = on; }
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const initial = name => (name || '?').trim()[0]?.toUpperCase() || '?';
 const isSelf = () => state.person?.relationship === 'myself';
+const isUnsure = s => /around|about|\bor\b|maybe|c\.|~|\?|\d0s/i.test(String(s || ''));
 const yearOf = s => +(String(s || '').match(/\b(1[89]\d\d|20\d\d)\b/)?.[1] || 0);
 
 // ── Routing ────────────────────────────────────────────────────
@@ -329,8 +330,9 @@ function renderThread() {
   $('#threadTrack').classList.toggle('labeled', dated.length <= 5);
   $('#threadTrack').innerHTML = dated.map((d, i) => {
     const left = 4 + ((d.y - min) / span) * 92;
-    return `<button class="t-dot ${i % 2 ? 'up' : ''}" style="left:${left}%;--i:${i}" data-id="${d.m.id}" aria-label="${esc(d.m.title)}, ${d.y}">
-      <span class="yr">${d.y}</span><span class="tt">${esc(d.m.title)}</span></button>`;
+    const unsure = isUnsure(d.m.memory_date);
+    return `<button class="t-dot ${i % 2 ? 'up' : ''} ${unsure ? 'unsure' : ''}" style="left:${left}%;--i:${i}" data-id="${d.m.id}" aria-label="${esc(d.m.title)}, ${esc(d.m.memory_date)}">
+      <span class="yr">${unsure ? 'c. ' : ''}${d.y}</span><span class="tt">${esc(d.m.title)}</span></button>`;
   }).join('');
 }
 $('#threadTrack').addEventListener('click', e => {
@@ -403,6 +405,7 @@ function openMemory(m) {
   btn.textContent = btn.dataset.label;
   $('#mTyped').hidden = !!m.has_voice;
   $('#mDelete').textContent = 'Delete';
+  setEditing(false);
   $('#memorySheet').hidden = false;
 }
 
@@ -423,6 +426,36 @@ function browserSpeak(text, btn) {
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
+
+function setEditing(on) {
+  const editable = on ? 'plaintext-only' : 'false';
+  for (const el of [$('#mTitle'), $('#mContent')]) {
+    try { el.contentEditable = editable; } catch { el.contentEditable = on ? 'true' : 'false'; }
+    el.classList.toggle('editing', on);
+  }
+  $('#mYearRow').hidden = !on;
+  $('#mEdit').textContent = on ? 'Save changes' : 'Fix words or year';
+  $('#mEdit').classList.toggle('pill-accent', on);
+  $('#mEdit').classList.toggle('pill-line', !on);
+  $('#mPlay').style.display = on ? 'none' : '';
+  if (on) { $('#mYear').value = state.current.memory_date || ''; $('#mContent').focus(); }
+}
+
+$('#mEdit').addEventListener('click', async () => {
+  const m = state.current, btn = $('#mEdit');
+  if (!$('#mYearRow').hidden) {
+    busy(btn, true);
+    try {
+      const updated = await api(`/api/memories/${m.id}`, { method: 'PATCH', body: {
+        title: $('#mTitle').textContent, content: $('#mContent').innerText, memory_date: $('#mYear').value
+      } });
+      await loadMemories();
+      openMemory({ ...m, ...updated });
+      toast('Saved. Thank you for keeping it right.');
+    } catch (err) { fail(err); }
+    finally { busy(btn, false); }
+  } else setEditing(true);
+});
 
 $('#mDelete').addEventListener('click', async () => {
   const m = state.current, btn = $('#mDelete');
@@ -701,7 +734,7 @@ $('#chatForm').addEventListener('submit', async e => {
       <figure class="quote">
         <blockquote>“${esc(s.quote)}”</blockquote>
         <div class="quote-actions">
-          ${s.voice ? `<button class="hear" data-i="${i}">▶ Hear ${esc(who)} say it</button>` : ''}
+          ${s.voice ? `<button class="hear" data-i="${i}">▶ Hear ${esc(who)} say it${s.voice.start ? ` · ${mmss(s.voice.start)}` : ''}</button>` : ''}
           <button class="src" data-id="${s.id}">From “${esc(s.title)}”${s.memory_date ? ` · ${esc(s.memory_date)}` : ''}</button>
         </div>
       </figure>`).join('');
@@ -863,8 +896,10 @@ async function waitForLifetime() {
 (function demoVideo() {
   const v = $('#demoVideo'), section = $('#demo'), btn = $('#demoSound');
   if (!v) return;
-  v.addEventListener('loadedmetadata', () => { section.hidden = false; }, { once: true });
-  v.addEventListener('error', () => { section.hidden = true; $('#demoLink')?.setAttribute('href', '#how'); });
+  // Visible by default (a cached video can finish loading before this script runs); hide only on a real failure.
+  const fail = () => { section.hidden = true; $('#demoLink')?.setAttribute('href', '#how'); };
+  if (v.error) fail();
+  v.addEventListener('error', fail);
   if ('IntersectionObserver' in window) {
     new IntersectionObserver(([e]) => {
       if (e.isIntersecting) v.play().catch(() => {}); else v.pause();

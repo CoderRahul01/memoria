@@ -40,6 +40,7 @@ SELECT * FROM (VALUES
   ('event', 'print', 'printed the keepsake'),
   ('event', 'export', 'downloaded stories'),
   ('event', 'memory_deleted', 'deleted a story'),
+  ('event', 'memory_edited', 'corrected a story'),
   ('event', 'prompt_used', 'used a question prompt'),
   ('event', 'credit_fallback', 'got a fallback (credits low)'),
   ('event', 'error', 'hit an error'),

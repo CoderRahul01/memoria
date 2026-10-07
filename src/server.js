@@ -298,6 +298,25 @@ app.delete('/api/memories/:id', wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
+// Families can correct what was heard: the words, the title, or the year (blank = "we don't know").
+app.patch('/api/memories/:id', wrap(async (req, res) => {
+  const memory = await db.getMemory(req.family.id, req.params.id);
+  if (!memory) throw httpError(404, 'Memory not found');
+  const clean = (v, max) => v === undefined ? undefined : String(v).trim().slice(0, max);
+  const title = clean(req.body.title, 120) || undefined;
+  const content = clean(req.body.content, 8000) || undefined;
+  const memory_date = req.body.memory_date === undefined ? undefined : (clean(req.body.memory_date, 40) || null);
+  await db.updateMemory(req.family.id, memory.id, { title, content, memory_date });
+  db.logEvent(req.family.id, 'memory_edited', { fields: Object.keys(req.body).filter(k => ['title', 'content', 'memory_date'].includes(k)) });
+  // Keep the family's memory assistant in step with the correction.
+  if (content && content !== memory.content && backboard.enabled()) {
+    assistantFor(req.family.id, memory.person_name)
+      .then(id => id && backboard.addMemory(id, { ...memory, title: title || memory.title, content: `Corrected by the family: ${content}`, memory_date: memory_date === undefined ? memory.memory_date : memory_date }))
+      .catch(e => console.warn('Backboard correction:', e.message));
+  }
+  res.json(await db.getMemory(req.family.id, memory.id));
+}));
+
 app.post('/api/memories', wrap(async (req, res) => {
   const content = req.body.content?.trim();
   if (!content) throw httpError(400, 'Write or say something first.');

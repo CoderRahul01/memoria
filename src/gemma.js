@@ -95,17 +95,20 @@ function heuristicExtract(text) {
   const n = clause.split(/\s+/).length;
   const base = n >= 2 && n <= 9 ? clause : firstSentence.split(/\s+/).slice(0, 7).join(' ') + '…';
   const title = base.replace(/[,.;:!?]+$/, '');
-  const year = text.match(/\b(1[89]\d\d|20\d\d)s?\b/);
+  const year = settleDate(text, null);
   // Capitalised words that don't start a sentence and don't follow a place preposition — a rough name detector.
   const people = [...new Set([...text.matchAll(/(?<![.!?]\s)(?<!^)(?<!\b(?:in|to|from|at|near|of)\s)\b(?:Mr\.?\s|Mrs\.?\s)?([A-Z][a-z]{2,})\b/g)]
-    .map(m => m[1]).filter(w => !STOP.has(w.toLowerCase()) && !/^(January|February|March|April|May|June|July|August|September|October|November|December|Monday|Sunday|God)$/.test(w)))].slice(0, 5);
+    .map(m => m[1]).filter(w => !STOP.has(w.toLowerCase()) && !/^(January|February|March|April|May|June|July|August|September|October|November|December|Monday|Sunday|God)$/.test(w)))]
+    // A name the speaker corrected ("Ramesh, no sorry, Suresh" / "Ramesh, I mean Suresh" / "not Ramesh but Suresh") is dropped.
+    .filter(w => !new RegExp(`\\b${w}\\b,?\\s+(?:no|nahi|sorry|i mean|actually)\\b|\\bnot ${w},?\\s+(?:but\\s+)?[a-z]`, 'i').test(text))
+    .slice(0, 5);
 
   return {
     title: title || 'A memory',
     category,
     tags: tags.length ? tags : ['memory'],
     summary: text.length > 280 ? text.slice(0, 277) + '…' : text,
-    memory_date: year ? year[0] : null,
+    memory_date: year,
     people_mentioned: people,
     sentiment: 'nostalgic'
   };
@@ -134,14 +137,16 @@ async function extractMemory(transcription, family = null) {
 RAW TRANSCRIPTION:
 """${transcription}"""
 
+Rules: never invent a year the speaker didn't say. If they sound unsure ("I think", "maybe", "or"), keep that uncertainty in memory_date.
+
 Respond ONLY with valid JSON (no markdown):
 {
   "title": "short memorable title (max 8 words)",
   "category": "one of: recipe, story, advice, event, family, place, other",
   "tags": ["3-5 short lowercase tags"],
   "summary": "2-3 sentence clean summary, written warmly in third person",
-  "memory_date": "approximate date or period mentioned, or null",
-  "people_mentioned": ["names of people mentioned"],
+  "memory_date": "the date or period exactly as sure as the speaker was, e.g. \"1968\", \"around 1978\", \"1978 or 1979\", \"late 1970s\"; null if they never said when",
+  "people_mentioned": ["names of people mentioned; if the speaker corrects a name (\"Ramesh, no, Suresh\"), only the corrected one"],
   "sentiment": "warm | happy | nostalgic | bittersweet | serious"
 }`;
 
@@ -151,11 +156,35 @@ Respond ONLY with valid JSON (no markdown):
     if (match) {
       try {
         const parsed = JSON.parse(match[0]);
-        return { ...heuristicExtract(transcription), ...parsed, engine: out.engine };
+        return { ...heuristicExtract(transcription), ...parsed, memory_date: settleDate(transcription, parsed.memory_date), engine: out.engine };
       } catch { /* fall through to heuristics */ }
     }
   }
   return { ...heuristicExtract(transcription), engine: 'heuristic' };
+}
+
+/**
+ * The final say on a story's date, whatever model ran: only years the speaker actually said,
+ * and their uncertainty kept ("I think it was 1978, or maybe 1979" → "1978 or 1979").
+ */
+const HEDGE = /\b(maybe|perhaps|i think|i guess|i believe|around|about|roughly|or so|probably|not sure|something like|could have been|might have been|circa)\b/i;
+function settleDate(text, proposed) {
+  const said = [...String(text).matchAll(/\b(1[89]\d\d|20\d\d)(s)?\b/g)].map(m => ({ year: m[1], decade: !!m[2], at: m.index, end: m.index + m[0].length }));
+  const prop = proposed == null ? null : String(proposed).trim().slice(0, 40) || null;
+  if (!said.length) return prop && /\d{4}/.test(prop) ? null : prop; // a year nobody said is dropped
+  for (let i = 0; i + 1 < said.length; i++) {
+    const between = text.slice(said[i].end, said[i + 1].at);
+    if (said[i].year !== said[i + 1].year && between.length < 24 && /\b(or|to)\b|[-–]/i.test(between)) {
+      return `${said[i].year} or ${said[i + 1].year}`;
+    }
+  }
+  const first = said[0];
+  const near = text.slice(Math.max(0, first.at - 40), first.end + 25);
+  if (first.decade) return `the ${first.year}s`;
+  if (HEDGE.test(near)) return `around ${first.year}`;
+  // Keep the model's wording ("summer 1968") only if its year is one the speaker said.
+  const propYear = prop?.match(/\b(1[89]\d\d|20\d\d)\b/)?.[1];
+  return propYear && said.some(y => y.year === propYear) && !HEDGE.test(prop) ? prop : first.year;
 }
 
 async function answerQuestion(question, memories, personName = 'them', family = null) {
@@ -232,4 +261,4 @@ function excerpt(memory, question, max = 220) {
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
-module.exports = { extractMemory, answerQuestion, generateLifeSummary, checkHealth, rankMemories, excerpt };
+module.exports = { settleDate, extractMemory, answerQuestion, generateLifeSummary, checkHealth, rankMemories, excerpt };

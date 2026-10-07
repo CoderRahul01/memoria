@@ -96,8 +96,8 @@
         </div>
       </div>
 
-      <!-- Demo walkthrough. Shows only once public/media/memoria-demo.mp4 exists. -->
-      <section class="demo wrap" id="demo" hidden>
+      <!-- Demo walkthrough (public/media/memoria-demo.mp4). Always shown; hidden only if the file fails to load. -->
+      <section class="demo wrap" id="demo">
         <p class="eyebrow">See it in 2 minutes</p>
         <figure class="demo-frame">
           <video id="demoVideo" src="media/memoria-demo.mp4" poster="media/memoria-demo.jpg" muted playsinline controls preload="metadata" aria-label="A 2-minute walkthrough of Memoria, narrated by its maker"></video>
@@ -360,9 +360,11 @@
       <h3 class="heading" id="mTitle"></h3>
       <p class="m-content" id="mContent"></p>
       <div class="tags" id="mTags"></div>
+      <label class="m-year" id="mYearRow" hidden>When <input id="mYear" maxlength="40" placeholder="Leave blank if unsure, or “around 1978”"></label>
       <p class="fineprint" id="mTyped" hidden>This story was typed, so there’s no recording of it.</p>
       <div class="row-actions">
         <button class="pill pill-line danger" id="mDelete">Delete</button>
+        <button class="pill pill-line" id="mEdit">Fix words or year</button>
         <button class="pill pill-accent" id="mPlay">Listen</button>
       </div>
     </article>
