@@ -97,8 +97,6 @@ async function initDB() {
       language TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-    -- Generated voices were retired: Listen only ever plays the real recording.
-    DELETE FROM credits WHERE provider IN ('elevenlabs_tts', 'elevenlabs_voices');
     CREATE TABLE IF NOT EXISTS credits (
       provider TEXT PRIMARY KEY,
       label TEXT NOT NULL,
@@ -107,6 +105,8 @@ async function initDB() {
       budget NUMERIC,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    -- Generated voices were retired: Listen only ever plays the real recording.
+    DELETE FROM credits WHERE provider IN ('elevenlabs_tts', 'elevenlabs_voices');
   `);
   // The Pulse contract: read-only views that Memoria Pulse (and only Pulse) reads.
   await pool.query(fs.readFileSync(path.join(__dirname, 'pulse.sql'), 'utf8'));
@@ -143,6 +143,9 @@ async function markLifetime(id, { payment_id, email }) {
     `UPDATE families SET plan = 'lifetime', paid_at = COALESCE(paid_at, now()), payment_id = $2, payer_email = $3
      WHERE id = $1 RETURNING *`, [id, payment_id || null, email || null]);
 }
+
+const revokeLifetime = payment_id => one(
+  `UPDATE families SET plan = 'free' WHERE payment_id = $1 AND plan = 'lifetime' RETURNING id`, [payment_id]);
 
 // ── Persons ────────────────────────────────────
 async function getAllPersons(familyId) {
@@ -198,7 +201,7 @@ function logEvent(familyId, name, props = {}, ms = null, ok = true) {
 
 module.exports = {
   pool, q, one, initDB,
-  createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime,
+  createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime, revokeLifetime,
   getAllPersons, getPerson, savePerson, updatePersonVoiceId,
   saveMemory, updateMemory, getMemory, getAllMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
   heartbeat, logEvent, setCredit

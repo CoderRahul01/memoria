@@ -133,6 +133,7 @@ function forgetFamily() {
 const privateLink = () => `${location.origin}/#k=${state.key}`;
 
 $$('[data-start]').forEach(b => b.addEventListener('click', () => {
+  track('start_clicked', { text: b.textContent });
   location.hash = !state.key ? 'start' : b.classList.contains('landing-only') ? 'home' : 'record';
 }));
 
@@ -156,13 +157,19 @@ $('#welcomeForm').addEventListener('submit', async e => {
   if (!name) return;
   busy(btn, true);
   try {
-    const r = await api('/api/family', {
-      method: 'POST',
-      body: { owner_name: $('#wOwner').value.trim(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, language: navigator.language }
-    });
-    state.key = r.key;
-    state.family = r.family;
-    lsSet('memoria.key', r.key);
+    const ownerName = $('#wOwner').value.trim() || undefined;
+    if (state.key) {
+      const updated = await api('/api/family', { method: 'PATCH', body: { owner_name: ownerName } });
+      state.family = { ...state.family, ...updated };
+    } else {
+      const r = await api('/api/family', {
+        method: 'POST',
+        body: { owner_name: ownerName, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, language: navigator.language }
+      });
+      state.key = r.key;
+      state.family = r.family;
+      lsSet('memoria.key', r.key);
+    }
     const p = await api('/api/persons', { method: 'POST', body: { name, relationship: rel } });
     lsSet('memoria.person', p.name);
     track('onboarded', { relationship: rel || 'other' });
@@ -930,6 +937,15 @@ async function boot() {
   const paid = new URLSearchParams(location.search).has('paid');
   if (paid) history.replaceState(null, '', location.pathname + location.hash);
   route();
+
+  // Track app opened and PWA installation
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  track('app_opened', { view: state.view, standalone: isStandalone, referrer: document.referrer || 'direct' });
+  window.addEventListener('appinstalled', () => {
+    track('app_installed', { standalone: true });
+  });
+  heartbeat();
+
   state.health = await api('/api/health').catch(() => null);
   $('#sttHint').textContent = state.health?.transcription ? 'written out word for word when you keep the story' : SR ? 'written out live as they talk' : 'type below';
   if (!state.key) return;

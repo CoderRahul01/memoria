@@ -24,6 +24,11 @@ FROM presence p;
 -- Plain-language names for event types and screens.
 CREATE OR REPLACE VIEW pulse.labels AS
 SELECT * FROM (VALUES
+  ('event', 'app_opened', 'opened the app'),
+  ('event', 'app_installed', 'installed the app'),
+  ('event', 'site_visited', 'visited the site'),
+  ('event', 'demo_listened', 'listened to the demo'),
+  ('event', 'refunded', 'was refunded'),
   ('event', 'family_created', 'opened a new family space'),
   ('event', 'onboarded', 'finished setup'),
   ('event', 'person_added', 'added a loved one'),
@@ -48,6 +53,8 @@ SELECT * FROM (VALUES
   ('step', 'memory_saved', 'Keeping a story'),
   ('step', 'transcribed', 'Turning voice into text'),
   ('step', 'tribute', 'Writing the tribute'),
+  ('view', 'landing', 'exploring the landing page'),
+  ('view', 'welcome', 'setting up'),
   ('view', 'home', 'reading the album'),
   ('view', 'record', 'recording a story'),
   ('view', 'ask', 'asking a question'),

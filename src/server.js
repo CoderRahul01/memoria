@@ -74,8 +74,15 @@ app.post('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), asy
     const data = event.data || {};
     const familyId = data.metadata?.family_id;
     if (event.type === 'payment.succeeded' && familyId) {
+      const before = await db.familyById(familyId);
+      if (before?.plan === 'lifetime' && before.payment_id === data.payment_id) return res.json({ received: true }); // Dodo retry
       const fam = await db.markLifetime(familyId, { payment_id: data.payment_id, email: data.customer?.email });
       db.logEvent(familyId, 'purchase', { amount: data.total_amount, currency: data.currency, matched: !!fam });
+    }
+    // A refund or a lost dispute takes Lifetime back; the stories stay.
+    if (['refund.succeeded', 'dispute.lost'].includes(event.type) && data.payment_id) {
+      const fam = await db.revokeLifetime(data.payment_id);
+      if (fam) db.logEvent(fam.id, 'refunded', { type: event.type });
     }
     res.json({ received: true });
   } catch (e) {
@@ -177,7 +184,7 @@ app.post('/api/presence', (req, res) => {
   res.json({ ok: true });
 });
 
-const TRACKABLE = new Set(['view', 'prompt_used', 'clip_played', 'share_link', 'upgrade_viewed', 'print', 'export', 'onboarded']);
+const TRACKABLE = new Set(['view', 'prompt_used', 'clip_played', 'demo_listened', 'demo_sound', 'start_clicked', 'share_link', 'upgrade_viewed', 'print', 'export', 'onboarded', 'app_opened', 'app_installed', 'site_visited']);
 app.post('/api/track', (req, res) => {
   const { name, props } = req.body || {};
   if (TRACKABLE.has(name)) db.logEvent(req.family.id, name, typeof props === 'object' && props ? props : {});
