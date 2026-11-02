@@ -7,6 +7,7 @@
  */
 
 const { configured } = require('./env');
+const gemini = require('./gemini');
 const openrouter = require('./openrouter');
 const credits = require('./credits');
 
@@ -38,6 +39,14 @@ async function viaTinker(prompt, system) {
 
 /** Returns { text, engine } or null when no model is reachable. */
 async function generate(prompt, system, family = null) {
+  if (gemini.enabled()) {
+    try {
+      const out = await gemini.generate(prompt, system);
+      if (out) return out;
+    } catch (e) {
+      console.warn('Gemini failed:', e.message);
+    }
+  }
   if (openrouter.enabled() && await credits.allow('openrouter', 1, family)) {
     const out = await openrouter.complete(prompt, system);
     if (out) return out;
@@ -66,6 +75,7 @@ function keywords(text) {
 const CATEGORY_HINTS = {
   recipe: ['recipe', 'cook', 'cooking', 'masala', 'spice', 'bake', 'boil', 'fry', 'teaspoon', 'cup', 'dish', 'kitchen', 'biryani', 'curry', 'dough', 'ingredient'],
   advice: ['advice', 'always', 'never', 'should', 'lesson', 'learn', 'promise', 'remember', 'important', 'honest', 'patience'],
+  career: ['career', 'job', 'work', 'money', 'business', 'office', 'company', 'boss', 'profession', 'salary', 'interview', 'trade'],
   family: ['mother', 'father', 'wife', 'husband', 'son', 'daughter', 'brother', 'sister', 'grandmother', 'grandfather', 'wedding', 'married', 'born', 'baby'],
   place: ['village', 'city', 'house', 'home', 'street', 'river', 'town', 'country', 'moved', 'travel', 'train'],
   event: ['war', 'partition', 'festival', 'election', 'flood', 'year', 'independence', 'diwali', 'eid', 'christmas']
@@ -136,7 +146,7 @@ Rules: never invent a year the speaker didn't say. If they sound unsure ("I thin
 Respond ONLY with valid JSON (no markdown):
 {
   "title": "short memorable title (max 8 words)",
-  "category": "one of: recipe, story, advice, event, family, place, other",
+  "category": "one of: recipe, story, advice, career, event, family, place, other",
   "tags": ["3-5 short lowercase tags"],
   "summary": "2-3 sentence clean summary, written warmly in third person",
   "memory_date": "the date or period exactly as sure as the speaker was, e.g. \"1968\", \"around 1978\", \"1978 or 1979\", \"late 1970s\"; null if they never said when",
@@ -231,9 +241,12 @@ async function generateLifeSummary(memories, personName = 'them', family = null)
 }
 
 async function checkHealth() {
-  const or = openrouter.enabled(), tinker = !!(TINKER_KEY && TINKER_PATH);
+  const gem = gemini.enabled();
+  const or = openrouter.enabled();
+  const tinker = !!(TINKER_KEY && TINKER_PATH);
   return {
-    engine: or ? `openrouter:${openrouter.modelLabel()}` : tinker ? `tinker:${TINKER_LABEL}` : 'heuristic',
+    engine: gem ? `gemini:${gemini.modelLabel()}` : or ? `openrouter:${openrouter.modelLabel()}` : tinker ? `tinker:${TINKER_LABEL}` : 'heuristic',
+    gemini: gem,
     openrouter: or,
     tinker,
     tinkerModel: tinker ? TINKER_LABEL : null

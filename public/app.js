@@ -15,7 +15,7 @@ const state = {
   view: 'home'
 };
 
-const FILTER_LABELS = { all: 'All', recipe: 'Recipes', story: 'Stories', advice: 'Advice', family: 'Family', event: 'Events', place: 'Places', other: 'Other' };
+const FILTER_LABELS = { all: 'All', career: 'Career & Work', recipe: 'Recipes', story: 'Stories', advice: 'Advice', family: 'Family', event: 'Events', place: 'Places', other: 'Other' };
 
 const PROMPTS = [
   'What’s a recipe only you know how to make?',
@@ -33,6 +33,36 @@ const OWN_PROMPTS = [
   'What was the best day of your life?',
   'What’s a mistake that taught you something?',
   'Where did you grow up, and what was it like?'
+];
+const DAD_PROMPTS = [
+  'What was the toughest decision you ever made in your career?',
+  'What is your golden rule about money, debt, and work?',
+  'Tell me about the day I was born, and what you felt.',
+  'What is something your own parents taught you that stayed with you?',
+  'What was your first job or business, and how did you start?',
+  'What advice would you give when life hits you hard?'
+];
+const MOM_PROMPTS = [
+  'What’s a dish or recipe you love cooking for the family, and the secret trick?',
+  'What was your childhood home like, and who made you feel safest?',
+  'Tell me the story of how you and Dad met.',
+  'What was a hard moment you pushed through without telling anyone?',
+  'What is your favorite memory of us when we were growing up?',
+  'What value do you want our family to hold onto forever?'
+];
+const PARTNER_PROMPTS = [
+  'What was your exact first impression of me the day we met?',
+  'What’s a quiet moment between us that made you smile the most?',
+  'What is a dream we haven’t achieved yet that you want for us?',
+  'What’s an inside joke or memory that always makes you laugh?',
+  'What advice or promise do you want to leave for us?'
+];
+const GRANDPARENT_PROMPTS = [
+  'What was the world like when you were 10 years old?',
+  'Tell me about our ancestors, where we came from, and what they were like.',
+  'What festival or celebration from your youth do you miss most?',
+  'How did you make your signature recipe back in the day?',
+  'What advice do you want every grandchild to carry in their heart?'
 ];
 
 // ── Storage (may be unavailable in private mode) ───────────────
@@ -507,9 +537,20 @@ function pickMime() {
   return types.find(t => window.MediaRecorder?.isTypeSupported?.(t)) || '';
 }
 
+function getPromptList() {
+  const rel = (state.person?.relationship || '').toLowerCase();
+  const name = (state.person?.name || '').toLowerCase();
+  if (isSelf()) return OWN_PROMPTS;
+  if (/father|dad|papa/i.test(rel) || /dad|papa/i.test(name)) return DAD_PROMPTS;
+  if (/mother|mom|maa|mummy/i.test(rel) || /mom|maa|mummy/i.test(name)) return MOM_PROMPTS;
+  if (/partner|wife|husband|girlfriend|boyfriend|spouse/i.test(rel)) return PARTNER_PROMPTS;
+  if (/grandmother|grandfather|grandpa|grandma|nani|dadi|nana|dadu/i.test(rel) || /nani|dadi|nana|dadu/i.test(name)) return GRANDPARENT_PROMPTS;
+  return PROMPTS;
+}
+
 let promptStart = 0;
 function renderPrompts() {
-  const list = isSelf() ? OWN_PROMPTS : PROMPTS;
+  const list = getPromptList();
   const four = Array.from({ length: Math.min(4, list.length) }, (_, i) => list[(promptStart + i) % list.length]);
   $('#prompts').innerHTML = four.map(p => `<button>${esc(p)}</button>`).join('') +
     `<button class="more" data-more aria-label="Show different questions">↻ Different questions</button>`;
