@@ -420,3 +420,108 @@ body:not(.mode-landing) .landing-only { display: none !important; }
 .m-year { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-weight: 600; font-size: 14px; }
 .m-year input { flex: 1; border: 1px solid var(--line); background: var(--paper); border-radius: 10px; padding: 9px 12px; font: inherit; font-weight: 400; }
 .letter .editing { outline: 2px dashed var(--line); outline-offset: 6px; border-radius: 4px; }
+
+/* ── Keepsake QR & Artwork enhancements ── */
+.keepsake .qr-audio-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 16px 0 24px;
+  padding: 10px 14px;
+  border: 1px dashed #bbb;
+  border-radius: 8px;
+  background: #fafafa;
+  page-break-inside: avoid;
+}
+.keepsake .qr-audio-box img {
+  width: 72px;
+  height: 72px;
+  border-radius: 4px;
+  background: #fff;
+}
+.keepsake .qr-audio-box .qr-desc {
+  font-family: var(--sans);
+  font-size: 11pt;
+  color: #333;
+}
+.keepsake .qr-audio-box .qr-desc b {
+  display: block;
+  font-size: 12pt;
+  color: #111;
+  margin-bottom: 2px;
+}
+
+.illustration-box {
+  margin: 14px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.illustration-box img {
+  width: 100%;
+  height: auto;
+  max-height: 280px;
+  object-fit: cover;
+  display: block;
+}
+
+.hardcover-preview {
+  display: flex;
+  margin: 18px 0;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #3A231C;
+  color: #F5EFE4;
+  border: 2px solid #5A3A30;
+}
+.book-spine {
+  width: 32px;
+  background: #2A1711;
+  border-right: 2px solid #5A3A30;
+  display: grid;
+  place-content: center;
+  writing-mode: vertical-rl;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #CDBBA7;
+  padding: 12px 0;
+}
+.book-cover-mockup {
+  padding: 24px 20px;
+  flex: 1;
+  text-align: center;
+}
+.book-cover-mockup .mockup-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #D3B99F;
+  margin: 0 0 6px;
+}
+.book-cover-mockup h4 {
+  font-family: var(--serif);
+  font-size: 24px;
+  margin: 0 0 8px;
+  color: #FFF8EE;
+}
+.book-cover-mockup small {
+  font-size: 11px;
+  color: #CDBBA7;
+}
+.plan-price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 14px 0;
+  padding: 12px 14px;
+  background: var(--paper);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.plan-price-row span {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+}

@@ -1,11 +1,13 @@
 {
   "name": "memoria",
   "version": "1.0.0",
-  "description": "Voice Memory Companion for Loved Ones \u2014 Hacktoberfest 2026",
+  "description": "Memoria — AI-Powered Generational Oral History & Wisdom Vault",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/*.test.js",
+    "verify": "node scripts/verify-submission.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -23,5 +25,16 @@
     "type": "git",
     "url": "https://github.com/CoderRahul01/memoria.git"
   },
-  "author": "Rahul Pandey (https://x.com/rahulpandey187)"
+  "contributors": [
+    {
+      "name": "Rahul Pandey",
+      "url": "https://www.linkedin.com/in/rahulpandey187",
+      "role": "Co-Founder & Technical Architect"
+    },
+    {
+      "name": "Twinkal Sahu",
+      "url": "https://www.linkedin.com/in/twinkal-sahu-701b1a2a4/",
+      "role": "Co-Founder & Growth Lead"
+    }
+  ]
 }

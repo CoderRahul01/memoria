@@ -428,6 +428,12 @@ async function playVoice(url, start = 0, end = null, btn = null) {
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
 // ── Memory sheet ───────────────────────────────────────────────
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = ((hash << 5) - hash) + str.charCodeAt(i);
+  return hash;
+}
+
 function openMemory(m) {
   if (!m) return;
   state.current = m;
@@ -435,6 +441,7 @@ function openMemory(m) {
   $('#mTitle').textContent = m.title;
   $('#mTags').innerHTML = (m.tags || []).map(t => `<span>${esc(t)}</span>`).join('');
   $('#mContent').textContent = m.content;
+  if ($('#mIllustrationBox')) $('#mIllustrationBox').hidden = true;
   stopVoice();
   const btn = $('#mPlay');
   btn.hidden = !m.has_voice;
@@ -445,6 +452,34 @@ function openMemory(m) {
   setEditing(false);
   $('#memorySheet').hidden = false;
 }
+
+$('#mShareWhatsApp')?.addEventListener('click', () => {
+  const m = state.current;
+  if (!m || !state.person) return;
+  const who = isSelf() ? 'I' : state.person.name;
+  const text = `Listen to what ${who} shared about "${m.title}" on Memoria:\n\n“${m.content.slice(0, 160)}…”\n\nOpen family album: ${privateLink()}`;
+  window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  track('whatsapp_shared');
+});
+
+$('#mIllustrate')?.addEventListener('click', () => {
+  const m = state.current, btn = $('#mIllustrate'), box = $('#mIllustrationBox'), img = $('#mIllustrationImg');
+  if (!m || !box || !img) return;
+  busy(btn, true);
+  toast('Painting story illustration with AI…');
+  const prompt = `nostalgic warm watercolor painting, storybook illustration: ${m.title}, ${m.category || 'memory'}, soft peaceful pastel colors, vintage family archive aesthetic`;
+  const seed = Math.abs(hashCode(m.id || m.title)) % 99999;
+  img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=800&height=500&nologo=true&seed=${seed}`;
+  img.onload = () => {
+    box.hidden = false;
+    busy(btn, false);
+    toast('Story artwork ready');
+  };
+  img.onerror = () => {
+    busy(btn, false);
+    toast('Could not generate artwork right now.', 'error');
+  };
+});
 
 $('#mPlay').addEventListener('click', async () => {
   const m = state.current, btn = $('#mPlay');
@@ -875,11 +910,49 @@ $('#printBtn').addEventListener('click', () => {
   if (state.family?.plan !== 'lifetime') return openUpgrade('The keepsake book is part of Lifetime.');
   const p = state.person.name;
   const sorted = [...state.memories].sort((a, b) => (yearOf(a.memory_date) || 9999) - (yearOf(b.memory_date) || 9999));
+  const origin = location.origin;
+  const articles = sorted.map(m => {
+    const audioUrl = `${origin}/#k=${state.key}&m=${m.id}`;
+    const qrBox = m.has_voice ? `
+      <div class="qr-audio-box">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=2&data=${encodeURIComponent(audioUrl)}" alt="Scan to hear audio" loading="lazy">
+        <div class="qr-desc">
+          <b>▶ Scan to hear ${esc(p)}'s real voice</b>
+          <span>Point your phone camera here to listen to this story (${m.voice_seconds ? mmss(m.voice_seconds) : 'recorded audio'})</span>
+        </div>
+      </div>` : '';
+    return `<article>
+      <h2>${esc(m.title)}</h2>
+      <small>${esc(m.memory_date || formatDate(m.created_at))}${m.category ? ` · ${esc(m.category)}` : ''}</small>
+      <p>${esc(m.content)}</p>
+      ${qrBox}
+    </article>`;
+  }).join('');
+
   $('#keepsake').innerHTML = `
-    <div class="cover"><p>The stories of</p><h1>${esc(p)}</h1><p>${sorted.length} stories, in their own words · kept with Memoria</p></div>
-    ${sorted.map(m => `<article><h2>${esc(m.title)}</h2><small>${esc(m.memory_date || formatDate(m.created_at))}</small><p>${esc(m.content)}</p></article>`).join('')}`;
+    <div class="cover">
+      <p>The stories of</p>
+      <h1>${esc(p)}</h1>
+      <p>${sorted.length} stories, in their own words · kept with Memoria</p>
+    </div>
+    ${articles}`;
   track('print');
   setTimeout(() => window.print(), 100);
+});
+
+$('#orderHardcoverBtn')?.addEventListener('click', () => {
+  if (state.person) $('#hcMockName').textContent = state.person.name;
+  $('#hardcoverSheet').hidden = false;
+  track('hardcover_viewed');
+});
+
+$('#hcReserveBtn')?.addEventListener('click', () => {
+  const p = state.person?.name || 'Loved One';
+  const mailSubject = encodeURIComponent(`Hardcover Book Request for ${p} - Memoria`);
+  const mailBody = encodeURIComponent(`Hi Memoria Team,\n\nI would like to order a bound hardcover book for ${p}'s stories (${state.memories.length} stories).\nFamily Link: ${privateLink()}\n\nPlease contact me with delivery and printing details.`);
+  location.href = `mailto:rahulprogrammerrp@gmail.com?subject=${mailSubject}&body=${mailBody}`;
+  closeSheets();
+  toast('Hardcover request initiated. We will email you details shortly!');
 });
 
 async function copyLink(btn) {
