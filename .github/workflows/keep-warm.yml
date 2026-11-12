@@ -1,0 +1,14 @@
+# Render's free tier sleeps after 15 idle minutes and takes ~20s to wake.
+# An elder opening a question link shouldn't be the one who waits, so we ping it.
+name: keep-warm
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: curl -fsS --max-time 60 https://memoria-qlji.onrender.com/api/health -o /dev/null

@@ -61,6 +61,8 @@ function limit(bucket, max, windowMs) {
 setInterval(() => { const now = Date.now(); for (const [k, h] of hits) if (now > h.reset) hits.delete(k); }, 60_000).unref();
 app.use('/api', limit('api', 300, 60_000));
 app.post('/api/family', limit('family', 12, 3_600_000));
+app.use('/api/invite', limit('invite', 40, 600_000));
+app.use('/api/listen', limit('listen', 60, 60_000));
 
 // ── Dodo webhook (needs the raw body for signature checks) ─────
 app.post('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
@@ -165,6 +167,7 @@ app.post('/api/family', wrap(async (req, res) => {
 app.use('/api', (req, res, next) => {
   if (['/health', '/family'].includes(req.path) && !(req.path === '/family' && req.method !== 'POST')) return next();
   if (req.path.startsWith('/audio/') && req.method === 'GET') return next();
+  if (req.path.startsWith('/invite/') || req.path.startsWith('/listen/')) return next(); // their own token checks
   return requireFamily(req, res, next);
 });
 
@@ -184,7 +187,7 @@ app.post('/api/presence', (req, res) => {
   res.json({ ok: true });
 });
 
-const TRACKABLE = new Set(['view', 'prompt_used', 'clip_played', 'demo_listened', 'demo_sound', 'start_clicked', 'share_link', 'upgrade_viewed', 'print', 'export', 'onboarded', 'app_opened', 'app_installed', 'site_visited']);
+const TRACKABLE = new Set(['invite_shared', 'next_used', 'view', 'prompt_used', 'clip_played', 'demo_listened', 'demo_sound', 'start_clicked', 'share_link', 'upgrade_viewed', 'print', 'export', 'onboarded', 'app_opened', 'app_installed', 'site_visited']);
 app.post('/api/track', (req, res) => {
   const { name, props } = req.body || {};
   if (TRACKABLE.has(name)) db.logEvent(req.family.id, name, typeof props === 'object' && props ? props : {});
@@ -204,7 +207,7 @@ async function checkMemoryLimit(family) {
   }
 }
 
-async function createMemory(family, content, person_name, source) {
+async function createMemory(family, content, person_name, source, { asked = null, via = null } = {}) {
   aiBudget(family);
   await db.savePerson(family.id, { name: person_name });
   const t0 = Date.now();
@@ -212,9 +215,9 @@ async function createMemory(family, content, person_name, source) {
   const memory = await db.saveMemory(family.id, {
     person_name, content, source,
     title: extracted.title, tags: extracted.tags, category: extracted.category,
-    memory_date: extracted.memory_date, people: extracted.people_mentioned
+    memory_date: extracted.memory_date, people: extracted.people_mentioned, asked, via
   });
-  db.logEvent(family.id, 'memory_saved', { source, engine: extracted.engine, chars: content.length }, Date.now() - t0);
+  db.logEvent(family.id, 'memory_saved', { source, via, engine: extracted.engine, chars: content.length }, Date.now() - t0);
   return { ...memory, summary: extracted.summary };
 }
 
@@ -288,60 +291,138 @@ app.post('/api/memories', wrap(async (req, res) => {
   if (!content) throw httpError(400, 'Write or say something first.');
   if (!req.body.person_name) throw httpError(400, 'Choose whose memory this is.');
   await checkMemoryLimit(req.family);
-  const memory = await createMemory(req.family, content.slice(0, 8000), req.body.person_name, req.body.source === 'sample' ? 'sample' : 'typed');
+  const memory = await createMemory(req.family, content.slice(0, 8000), req.body.person_name, req.body.source === 'sample' ? 'sample' : 'typed',
+    { asked: req.body.asked ? String(req.body.asked).slice(0, 200) : null });
   res.json({ success: true, memory });
 }));
 
 // Keeps the real recording. Scribe writes it out word for word (with timings); the browser's
 // live transcript is the fallback, and the family's own corrections always win.
+async function keepRecording(family, file, body, { person_name, asked = null, via = null, fromElder = false }) {
+  if (!file) throw httpError(400, 'No recording arrived. Please try again.');
+  if (!person_name) throw httpError(400, 'Choose whose memory this is.');
+  // An elder's answer is never turned away for a plan limit: losing their voice is worse than a free story.
+  if (!fromElder) await checkMemoryLimit(family);
+  const lim = limitsFor(family);
+  const buffer = fs.readFileSync(file.path);
+  // Length: the browser reports it; otherwise estimate from size (~32 kbps Opus).
+  const seconds = Math.max(1, Number(body.duration) || buffer.length / 4000);
+  if (seconds > lim.record_minutes * 60 + 15) {
+    throw httpError(413, family.plan === 'lifetime'
+      ? 'That recording is over 30 minutes. Please split it into shorter stories.'
+      : 'Free recordings can be up to 10 minutes. Split it into two stories, or unlock Lifetime for 30-minute recordings.');
+  }
+  const minutes = seconds / 60;
+  const typed = body.transcription?.trim();
+  const edited = body.edited === 'true';
+  let heard = null;
+  const t0 = Date.now();
+  if (elevenlabs.enabled()) {
+    if (await credits.allow('stt_minutes', minutes, family)) {
+      heard = await elevenlabs.transcribe(buffer, file.mimetype, file.originalname).catch(e => (console.warn('STT:', e.message), null));
+      if (heard) credits.record(family.id, 'stt_minutes', minutes);
+      db.logEvent(family.id, 'transcribed', { minutes: Math.round(minutes * 10) / 10, language: heard?.language, via }, Date.now() - t0, !!heard);
+    } else {
+      db.logEvent(family.id, 'credit_fallback', { kind: 'stt_minutes' });
+    }
+  }
+  let content = (edited && typed) || heard?.text || typed;
+  if (!content) {
+    if (!fromElder) throw httpError(422, 'We couldn’t write out that recording right now. Please type what was said in the box, then keep it.');
+    // Keep the elder's voice anyway; the family can write the words out later.
+    content = `${person_name} answered${asked ? ` “${asked}”` : ''}. The words haven’t been written out yet, but the recording is kept.`;
+  }
+  const memory = await createMemory(family, content.slice(0, 8000), person_name, 'voice', { asked, via });
+
+  const mb = buffer.length / 1048576;
+  let kept = false;
+  if (fromElder || await credits.allow('storage_mb', mb, family)) {
+    await recordings.save(memory.id, family.id, {
+      buffer, mime: file.mimetype || 'audio/webm', duration: seconds, words: heard?.words, language: heard?.language
+    });
+    kept = true;
+  } else {
+    db.logEvent(family.id, 'credit_fallback', { kind: 'storage_mb' });
+  }
+  return { memory: { ...memory, has_voice: kept, voice_seconds: kept ? seconds : null }, voice_kept: kept };
+}
+
 app.post('/api/record', upload.single('audio'), wrap(async (req, res) => {
   try {
-    if (!req.file) throw httpError(400, 'No recording arrived. Please try again.');
-    if (!req.body.person_name) throw httpError(400, 'Choose whose memory this is.');
-    await checkMemoryLimit(req.family);
-    const lim = limitsFor(req.family);
-    const buffer = fs.readFileSync(req.file.path);
-    // Length: the browser reports it; otherwise estimate from size (~32 kbps Opus).
-    const seconds = Math.max(1, Number(req.body.duration) || buffer.length / 4000);
-    if (seconds > lim.record_minutes * 60 + 15) {
-      throw httpError(413, req.family.plan === 'lifetime'
-        ? 'That recording is over 30 minutes. Please split it into shorter stories.'
-        : 'Free recordings can be up to 10 minutes. Split it into two stories, or unlock Lifetime for 30-minute recordings.');
-    }
-    const minutes = seconds / 60;
-    const typed = req.body.transcription?.trim();
-    const edited = req.body.edited === 'true';
-    let heard = null;
-    const t0 = Date.now();
-    if (elevenlabs.enabled()) {
-      if (await credits.allow('stt_minutes', minutes, req.family)) {
-        heard = await elevenlabs.transcribe(buffer, req.file.mimetype, req.file.originalname).catch(e => (console.warn('STT:', e.message), null));
-        if (heard) credits.record(req.family.id, 'stt_minutes', minutes);
-        db.logEvent(req.family.id, 'transcribed', { minutes: Math.round(minutes * 10) / 10, language: heard?.language }, Date.now() - t0, !!heard);
-      } else {
-        db.logEvent(req.family.id, 'credit_fallback', { kind: 'stt_minutes' });
-      }
-    }
-    const content = (edited && typed) || heard?.text || typed;
-    if (!content) {
-      throw httpError(422, 'We couldn’t write out that recording right now. Please type what was said in the box, then keep it.');
-    }
-    const memory = await createMemory(req.family, content.slice(0, 8000), req.body.person_name, 'voice');
-
-    const mb = buffer.length / 1048576;
-    let kept = false;
-    if (await credits.allow('storage_mb', mb, req.family)) {
-      await recordings.save(memory.id, req.family.id, {
-        buffer, mime: req.file.mimetype || 'audio/webm', duration: seconds, words: heard?.words, language: heard?.language
-      });
-      kept = true;
-    } else {
-      db.logEvent(req.family.id, 'credit_fallback', { kind: 'storage_mb' });
-    }
-    res.json({ success: true, memory: { ...memory, has_voice: kept, voice_seconds: kept ? seconds : null }, voice_kept: kept });
+    const out = await keepRecording(req.family, req.file, req.body, {
+      person_name: req.body.person_name, asked: req.body.asked ? String(req.body.asked).slice(0, 200) : null
+    });
+    res.json({ success: true, ...out });
   } finally {
     cleanup(req.file); // the temp file goes; the recording itself lives in the database
   }
+}));
+
+// ── NEXT QUESTIONS: follow-ups on what they said, and the gaps ──
+app.post('/api/next-questions', wrap(async (req, res) => {
+  const person_name = String(req.body.person_name || '').slice(0, 40);
+  if (!person_name) throw httpError(400, 'Choose whose stories to look at.');
+  const memories = await db.getAllMemories(req.family.id, person_name);
+  if (memories.length) aiBudget(req.family);
+  const t0 = Date.now();
+  const r = await gemma.nextQuestions(memories, person_name, req.family, 3);
+  db.logEvent(req.family.id, 'next_questions', { engine: r.engine, n: r.questions.length }, Date.now() - t0);
+  res.json(r);
+}));
+
+// ── QUESTION LINKS: the elder answers from their own phone ─────
+app.post('/api/invites', wrap(async (req, res) => {
+  const person_name = String(req.body.person_name || '').trim().slice(0, 40);
+  const question = String(req.body.question || '').trim().slice(0, 200);
+  if (!person_name || !question) throw httpError(400, 'Pick a question first.');
+  if (!await db.getPerson(req.family.id, person_name)) throw httpError(404, 'That person isn’t in this family space.');
+  const { token } = await db.createInvite(req.family.id, person_name, question);
+  db.logEvent(req.family.id, 'invite_created', { chars: question.length });
+  res.json({ token, question, person_name });
+}));
+
+app.get('/api/invites', wrap(async (req, res) => res.json(await db.recentInvites(req.family.id))));
+
+const publicInvite = inv => ({ person_name: inv.person_name, question: inv.question, from: inv.owner_name || null, answers: inv.answers });
+
+app.get('/api/invite/:token', wrap(async (req, res) => {
+  const inv = await db.inviteByToken(req.params.token);
+  if (!inv) throw httpError(404, 'This question link has expired. Ask your family to send a new one.');
+  db.logEvent(inv.family_id, 'invite_opened', {});
+  res.json(publicInvite(inv));
+}));
+
+app.post('/api/invite/:token/record', upload.single('audio'), wrap(async (req, res) => {
+  try {
+    const inv = await db.inviteByToken(req.params.token);
+    if (!inv) throw httpError(404, 'This question link has expired. Ask your family to send a new one.');
+    if (inv.answers >= 5) throw httpError(429, 'This question already has 5 answers. Ask your family to send a new one.');
+    const family = await db.familyById(inv.family_id);
+    const out = await keepRecording(family, req.file, req.body, {
+      person_name: inv.person_name, asked: inv.question, via: 'elder_link', fromElder: true
+    });
+    await db.markInviteAnswered(inv.id);
+    res.json({ success: true, title: out.memory.title, person_name: inv.person_name, from: inv.owner_name || null });
+  } finally {
+    cleanup(req.file);
+  }
+}));
+
+// ── LISTEN LINKS: one story, play-only (printed as a QR code in the book) ──
+app.get('/api/listen/:token', wrap(async (req, res) => {
+  const id = recordings.verifyListen(req.params.token);
+  const m = id && await db.one(
+    `SELECT m.id, m.family_id, m.title, m.person_name, m.memory_date, r.duration_s FROM memories m
+     JOIN recordings r ON r.memory_id = m.id WHERE m.id = $1`, [id]);
+  if (!m) throw httpError(404, 'This story isn’t available anymore.');
+  db.logEvent(m.family_id, 'listen_link', {});
+  res.json({ title: m.title, person_name: m.person_name, memory_date: m.memory_date, seconds: m.duration_s, url: recordings.signedUrl(m.id) });
+}));
+
+app.get('/api/memories/:id/listen-link', wrap(async (req, res) => {
+  const memory = await db.getMemory(req.family.id, req.params.id);
+  if (!memory?.has_voice) throw httpError(404, 'This story has no recording.');
+  res.json({ token: recordings.listenToken(memory.id) });
 }));
 
 // ── ASK ────────────────────────────────────────────────────────
@@ -354,26 +435,20 @@ app.post('/api/chat', wrap(async (req, res) => {
   const q = question.trim().slice(0, 400);
   const memories = await db.getAllMemories(req.family.id, person_name);
   const t0 = Date.now();
-  // Memories are ranked locally and handed to the model, so the answer only draws on what they said.
+  // The model may only answer with quotes we can find in their real words (checked in gemma.answerQuestion).
   const r = await gemma.answerQuestion(q, memories, person_name, req.family);
-  const result = { answer: r.answer, engine: r.engine, sources: r.sources.map(s => memories.find(m => m.id === s.id)).filter(Boolean) };
-
-  // Each source carries the exact words it came from, so families can check the answer.
-  const picked = gemma.rankMemories(q, result.sources, 3).concat(result.sources).filter((m, i, a) => a.findIndex(x => x.id === m.id) === i).slice(0, 3);
-  const spoken = new Map((await recordings.getWords(picked.map(m => m.id))).map(r => [r.memory_id, r]));
-  const sources = picked.map(m => {
-    const quote = gemma.excerpt(m, q);
-    const rec = spoken.get(m.id);
-    const clip = rec ? recordings.clipFor(rec.words, quote) : null;
+  const spoken = new Map((await recordings.getWords([...new Set(r.citations.map(c => c.id))])).map(x => [x.memory_id, x]));
+  const sources = r.citations.map(c => {
+    const m = memories.find(x => x.id === c.id);
+    const rec = spoken.get(c.id);
+    const clip = rec ? recordings.clipFor(rec.words, c.quote) : null;
     return {
-      id: m.id, title: m.title, memory_date: m.memory_date, quote,
+      id: m.id, title: m.title, memory_date: m.memory_date, quote: c.quote,
       voice: rec ? { url: recordings.signedUrl(m.id), start: clip?.start ?? 0, end: clip?.end ?? null } : null
     };
   });
-  const grounded = gemma.rankMemories(q, memories, 1).length > 0;
-  db.logEvent(req.family.id, 'question_asked', { engine: result.engine, sources: sources.length, grounded }, Date.now() - t0);
-
-  res.json({ answer: result.answer, sources: grounded ? sources : [], grounded });
+  db.logEvent(req.family.id, 'question_asked', { engine: r.engine, sources: sources.length, grounded: r.grounded }, Date.now() - t0);
+  res.json({ answer: r.answer, sources: r.grounded ? sources : [], grounded: r.grounded });
 }));
 
 // ── LISTEN: only ever the real recording ──────────────────────

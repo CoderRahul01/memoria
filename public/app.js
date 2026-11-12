@@ -12,7 +12,9 @@ const state = {
   health: null,
   current: null,
   freshId: null,
-  view: 'home'
+  view: 'home',
+  next: null,      // { for: 'name:count', questions: [...] }
+  asked: null      // the question that prompted the story being recorded
 };
 
 const FILTER_LABELS = { all: 'All', career: 'Career & Work', recipe: 'Recipes', story: 'Stories', advice: 'Advice', family: 'Family', event: 'Events', place: 'Places', other: 'Other' };
@@ -102,13 +104,14 @@ const yearOf = s => +(String(s || '').match(/\b(1[89]\d\d|20\d\d)\b/)?.[1] || 0)
 // ── Routing ────────────────────────────────────────────────────
 const APP_VIEWS = ['home', 'record', 'ask', 'story'];
 function show(view) {
-  const all = ['landing', 'welcome', ...APP_VIEWS];
+  const all = ['landing', 'welcome', 'elder', 'listen', ...APP_VIEWS];
   const swap = () => all.forEach(v => ($(`#view-${v}`).hidden = v !== view));
   if (document.startViewTransition && route.booted && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
     const vt = document.startViewTransition(swap);
     vt.ready.catch(() => {}); vt.finished.catch(() => {});
   } else swap();
-  document.body.className = view === 'landing' ? 'mode-landing' : view === 'welcome' ? 'mode-welcome' : 'mode-app';
+  document.body.className = view === 'landing' ? 'mode-landing' : view === 'welcome' ? 'mode-welcome'
+    : view === 'elder' || view === 'listen' ? 'mode-solo' : 'mode-app';
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === view));
   window.scrollTo({ top: 0 });
   observeReveals();
@@ -119,6 +122,14 @@ function show(view) {
 const LANDING_ANCHORS = ['demo', 'how', 'pricing'];
 function route() {
   const hash = location.hash.slice(1);
+  // Links that work without a family key: answer one question (#r=), or hear one story (#l=).
+  const solo = hash.match(/^(r|l)=([\w.-]{12,80})$/);
+  if (solo) {
+    show(solo[1] === 'r' ? 'elder' : 'listen');
+    route.booted = true;
+    if (route.solo !== hash) { route.solo = hash; solo[1] === 'r' ? openElder(solo[2]) : openListen(solo[2]); }
+    return;
+  }
   $$('.landing-only[data-start]').forEach(b => (b.textContent = state.key ? 'Open my album' : 'Start free'));
   if (!hash || LANDING_ANCHORS.includes(hash) || (!state.key && hash !== 'start')) {
     show('landing');
@@ -139,6 +150,7 @@ function route() {
   if (view === 'story') loadStory();
   if (view === 'ask') renderSuggestions();
   if (view === 'home') renderMemories();
+  if (view === 'record') renderPicked();
   heartbeat();
   track('view', { view });
 }
@@ -255,8 +267,11 @@ async function setPerson(p, reload = true) {
   $('#heroName').parentElement.innerHTML = self ? `<span id="heroName">Your</span> stories` : `<span id="heroName">${esc(p.name)}</span>’s stories`;
   $('#homeLede').textContent = self ? 'The stories you want the people you love to keep.' : `Every story ${p.name} has told, kept in their own words.`;
   $$('.pname').forEach(el => (el.textContent = self ? 'you' : p.name));
+  $$('.pposs').forEach(el => (el.textContent = self ? 'your' : `${p.name}’s`));
+  $('#nudgeTitle').textContent = `${p.name} doesn’t need the app.`;
   $('#cName').textContent = p.name;
   $('#chat').innerHTML = '';
+  state.asked = null;
   renderPrompts();
   renderVoiceStatus();
   if (reload) await loadMemories();
@@ -307,6 +322,7 @@ async function loadMemories() {
   renderFilters();
   renderMemories();
   renderThread();
+  if (!q && state.memories.length) loadNext(); // ready before they open Record
 }
 
 function renderFilters() {
@@ -327,7 +343,7 @@ $('#filters').addEventListener('click', e => {
 function cardHTML(m, i, example = false) {
   const when = m.memory_date || formatDate(m.created_at);
   return `<button class="mcard ${m.id === state.freshId ? 'fresh' : ''}" data-id="${m.id || ''}" style="--i:${i}" ${example ? 'tabindex="-1"' : ''}>
-      <span class="meta"><span class="cat">${esc(example ? 'example' : m.category)}</span><span>${esc(when)}</span></span>
+      <span class="meta"><span class="cat">${esc(example ? 'example' : m.category)}</span><span>${m.via === 'elder_link' ? 'from their phone · ' : ''}${esc(when)}</span></span>
       <h3>${esc(m.title)}</h3>
       <p>${esc(m.content)}</p>
       <span class="from">— ${esc(example ? m.who : state.person?.name)}</span>
@@ -350,6 +366,7 @@ function renderMemories() {
     $('#memoryGrid').innerHTML = EXAMPLES.map((m, i) => cardHTML(m, i, true)).join('');
     return;
   }
+  $('#nudge').hidden = !state.memories.length || isSelf();
   $('#memoryGrid').innerHTML = list.length ? list.map((m, i) => cardHTML(m, i)).join('')
     : searching ? `<p class="muted">No story mentions “${esc($('#searchInput').value)}” yet. Try asking about it instead.</p>` : '';
   state.freshId = null;
@@ -441,7 +458,10 @@ function openMemory(m) {
   $('#mTitle').textContent = m.title;
   $('#mTags').innerHTML = (m.tags || []).map(t => `<span>${esc(t)}</span>`).join('');
   $('#mContent').textContent = m.content;
-  if ($('#mIllustrationBox')) $('#mIllustrationBox').hidden = true;
+  const asked = m.asked ? `Asked: “${m.asked}”` : '';
+  const via = m.via === 'elder_link' ? `answered from ${m.person_name || 'their'}’s own phone` : '';
+  $('#mAsked').textContent = [asked, via].filter(Boolean).join(' · ');
+  $('#mAsked').hidden = !asked && !via;
   stopVoice();
   const btn = $('#mPlay');
   btn.hidden = !m.has_voice;
@@ -453,33 +473,26 @@ function openMemory(m) {
   $('#memorySheet').hidden = false;
 }
 
-$('#mShareWhatsApp')?.addEventListener('click', () => {
+// Sharing one story never shares the family key: voice stories get a listen-only link for that story.
+$('#mShareWhatsApp').addEventListener('click', async () => {
   const m = state.current;
   if (!m || !state.person) return;
   const who = isSelf() ? 'I' : state.person.name;
-  const text = `Listen to what ${who} shared about "${m.title}" on Memoria:\n\n“${m.content.slice(0, 160)}…”\n\nOpen family album: ${privateLink()}`;
-  window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
-  track('whatsapp_shared');
+  let link = '';
+  if (m.has_voice) {
+    try { link = `${location.origin}/#l=${(await api(`/api/memories/${m.id}/listen-link`)).token}`; } catch {}
+  }
+  const text = `${who} on “${m.title}”:\n\n“${m.content.slice(0, 220)}${m.content.length > 220 ? '…' : ''}”${link ? `\n\nHear it in ${isSelf() ? 'my' : 'their'} own voice: ${link}` : ''}`;
+  openWhatsApp(text);
+  track('share_link', { kind: 'story' });
 });
 
-$('#mIllustrate')?.addEventListener('click', () => {
-  const m = state.current, btn = $('#mIllustrate'), box = $('#mIllustrationBox'), img = $('#mIllustrationImg');
-  if (!m || !box || !img) return;
-  busy(btn, true);
-  toast('Painting story illustration with AI…');
-  const prompt = `nostalgic warm watercolor painting, storybook illustration: ${m.title}, ${m.category || 'memory'}, soft peaceful pastel colors, vintage family archive aesthetic`;
-  const seed = Math.abs(hashCode(m.id || m.title)) % 99999;
-  img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=800&height=500&nologo=true&seed=${seed}`;
-  img.onload = () => {
-    box.hidden = false;
-    busy(btn, false);
-    toast('Story artwork ready');
-  };
-  img.onerror = () => {
-    busy(btn, false);
-    toast('Could not generate artwork right now.', 'error');
-  };
-});
+function openWhatsApp(text, preopened = null) {
+  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  if (preopened) preopened.location = url;
+  else if (matchMedia('(pointer: coarse)').matches) location.href = url;
+  else window.open(url, '_blank', 'noopener');
+}
 
 $('#mPlay').addEventListener('click', async () => {
   const m = state.current, btn = $('#mPlay');
@@ -591,14 +604,41 @@ function renderPrompts() {
     `<button class="more" data-more aria-label="Show different questions">↻ Different questions</button>`;
   $('#cDate').textContent = new Date().toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
-$('#prompts').addEventListener('click', e => {
+function pickPrompt(e) {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.more) { promptStart += 4; return renderPrompts(); }
-  $$('#prompts button').forEach(x => x.classList.toggle('active', x === b));
-  browserSpeak(b.textContent);
-  track('prompt_used');
-});
+  const on = !b.classList.contains('active');
+  $$('#prompts button, #pickedList button').forEach(x => x.classList.toggle('active', on && x === b));
+  state.asked = on ? b.textContent.trim() : null;
+  if (on) browserSpeak(b.textContent);
+  track(e.currentTarget.id === 'pickedList' ? 'next_used' : 'prompt_used');
+}
+$('#prompts').addEventListener('click', pickPrompt);
+$('#pickedList').addEventListener('click', pickPrompt);
+
+// ── What to ask next: follow-ups on what they said, and the gaps ──
+async function loadNext(force = false) {
+  if (!state.person) return [];
+  const key = `${state.person.name}:${state.memories.length}`;
+  if (!force && state.next?.for === key) return state.next.questions;
+  try {
+    const r = await api('/api/next-questions', { method: 'POST', body: { person_name: state.person.name } });
+    state.next = { for: key, questions: r.questions || [] };
+  } catch { state.next = { for: key, questions: [] }; }
+  return state.next.questions;
+}
+async function renderPicked() {
+  if (!state.memories.length) { $('#picked').hidden = true; return; }
+  if (state.next?.for !== `${state.person.name}:${state.memories.length}`) {
+    $('#pickedList').innerHTML = '<span class="muted picking">Reading their stories for the next question…</span>';
+    $('#picked').hidden = false;
+  }
+  const qs = await loadNext();
+  if (location.hash !== '#record') return;
+  $('#pickedList').innerHTML = qs.map(x => `<button class="${x.q === state.asked ? 'active' : ''}">${esc(x.q)}</button>`).join('');
+  $('#picked').hidden = !qs.length;
+}
 
 function windTape(seconds) {
   const t = Math.min(1, seconds / TAPE_SECONDS);
@@ -736,10 +776,11 @@ $('#saveBtn').addEventListener('click', async () => {
       form.append('transcription', text);
       form.append('edited', String(rec.edited));
       form.append('person_name', state.person.name);
+      if (state.asked) form.append('asked', state.asked);
       form.append('duration', String(Math.round((rec.stoppedAt - rec.start) / 1000) || ''));
       data = await api('/api/record', { method: 'POST', body: form });
     } else {
-      data = await api('/api/memories', { method: 'POST', body: { content: text, person_name: state.person.name } });
+      data = await api('/api/memories', { method: 'POST', body: { content: text, person_name: state.person.name, asked: state.asked || undefined } });
     }
     clearTimeout(step);
     savingStep(2);
@@ -753,10 +794,12 @@ $('#saveBtn').addEventListener('click', async () => {
     windTape(0);
     $('#recLabel').textContent = 'Tap the tape to record another';
     state.freshId = data.memory.id;
+    state.asked = null;
     delete $('#memoryGrid').dataset.examples;
     await loadMemories();
     state.freshId = data.memory.id;
     loadFamily();
+    renderPicked();
   } catch (err) {
     clearTimeout(step);
     $('#saving').hidden = true;
@@ -773,7 +816,8 @@ function showSaved(m) {
     ${m.summary && m.summary !== m.content ? `<p>${esc(m.summary)}</p>` : ''}
     <div class="row-actions">
       <a class="pill pill-line" href="#home">See it in the album</a>
-      <a class="pill pill-accent" href="#ask">Ask about it</a>
+      <a class="pill pill-line" href="#ask">Ask about it</a>
+      ${isSelf() ? '' : `<button class="pill pill-accent" data-send>Send ${esc(state.person.name)} the next question</button>`}
     </div>`;
   box.hidden = false;
   setTimeout(() => { $('#saving').hidden = true; }, 600);
@@ -841,7 +885,9 @@ $('#chatForm').addEventListener('submit', async e => {
     bubble.querySelector('[data-record]')?.addEventListener('click', () => {
       location.hash = 'record';
       setTimeout(() => {
+        $$('#prompts button, #pickedList button').forEach(x => x.classList.remove('active'));
         $('#prompts').insertAdjacentHTML('afterbegin', `<button class="active">${esc(q)}</button>`);
+        state.asked = q;
       }, 50);
     });
     const first = bubble.querySelector('.quote .hear');
@@ -906,16 +952,34 @@ $('#exportBtn').addEventListener('click', async () => {
   } catch { toast('Couldn’t download right now.', 'error'); }
 });
 
-$('#printBtn').addEventListener('click', () => {
+// QR codes are drawn in the browser (nothing leaves the page) and point to a listen-only link for
+// that one story. The family key is never printed.
+function loadScript(src) {
+  return new Promise((ok, no) => document.head.appendChild(Object.assign(document.createElement('script'), { src, onload: ok, onerror: no })));
+}
+async function qrDataUrl(text) {
+  if (!window.qrcode) await loadScript('vendor/qrcode.js');
+  const qr = window.qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createDataURL(4, 2);
+}
+
+$('#printBtn').addEventListener('click', async () => {
   if (state.family?.plan !== 'lifetime') return openUpgrade('The keepsake book is part of Lifetime.');
   const p = state.person.name;
   const sorted = [...state.memories].sort((a, b) => (yearOf(a.memory_date) || 9999) - (yearOf(b.memory_date) || 9999));
-  const origin = location.origin;
+  const qrs = {};
+  await Promise.all(sorted.filter(m => m.has_voice).map(async m => {
+    try {
+      const { token } = await api(`/api/memories/${m.id}/listen-link`);
+      qrs[m.id] = await qrDataUrl(`${location.origin}/#l=${token}`);
+    } catch {}
+  }));
   const articles = sorted.map(m => {
-    const audioUrl = `${origin}/#k=${state.key}&m=${m.id}`;
-    const qrBox = m.has_voice ? `
+    const qrBox = qrs[m.id] ? `
       <div class="qr-audio-box">
-        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=2&data=${encodeURIComponent(audioUrl)}" alt="Scan to hear audio" loading="lazy">
+        <img src="${qrs[m.id]}" alt="Scan to hear ${esc(p)} tell this story">
         <div class="qr-desc">
           <b>▶ Scan to hear ${esc(p)}'s real voice</b>
           <span>Point your phone camera here to listen to this story (${m.voice_seconds ? mmss(m.voice_seconds) : 'recorded audio'})</span>
@@ -949,7 +1013,7 @@ $('#orderHardcoverBtn')?.addEventListener('click', () => {
 $('#hcReserveBtn')?.addEventListener('click', () => {
   const p = state.person?.name || 'Loved One';
   const mailSubject = encodeURIComponent(`Hardcover Book Request for ${p} - Memoria`);
-  const mailBody = encodeURIComponent(`Hi Memoria Team,\n\nI would like to order a bound hardcover book for ${p}'s stories (${state.memories.length} stories).\nFamily Link: ${privateLink()}\n\nPlease contact me with delivery and printing details.`);
+  const mailBody = encodeURIComponent(`Hi Memoria Team,\n\nI would like to order a bound hardcover book for ${p}'s stories (${state.memories.length} stories).\n\nPlease contact me with delivery and printing details.`);
   location.href = `mailto:rahulprogrammerrp@gmail.com?subject=${mailSubject}&body=${mailBody}`;
   closeSheets();
   toast('Hardcover request initiated. We will email you details shortly!');
@@ -982,6 +1046,181 @@ $('#ownerForm').addEventListener('submit', async e => {
     toast('Saved');
   } catch (err) { fail(err); }
 });
+
+// ── Send a question to their phone ─────────────────────────────
+function renderSendChoices(qs) {
+  const list = (qs && qs.length ? qs.map(x => x.q) : []).concat(getPromptList()).filter((q, i, a) => a.indexOf(q) === i).slice(0, 5);
+  $('#sendChoices').innerHTML = list.map(q => `<button type="button">${esc(q)}</button>`).join('');
+}
+async function openSend(prefill) {
+  if (!state.person) return;
+  closeSheets();
+  $('#sendQ').value = prefill || '';
+  renderSendChoices(state.next?.questions);
+  setTimeout(() => ($('#sendSheet').hidden = false), 230);
+  if (state.memories.length) renderSendChoices(await loadNext());
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-send]')) openSend(state.asked || ''); });
+$('#sendChoices').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  $$('#sendChoices button').forEach(x => x.classList.toggle('active', x === b));
+  $('#sendQ').value = b.textContent.trim();
+});
+async function questionLink() {
+  const question = $('#sendQ').value.trim();
+  if (!question) { $('#sendQ').focus(); throw Object.assign(new Error('Pick or write a question first.'), {}); }
+  const r = await api('/api/invites', { method: 'POST', body: { person_name: state.person.name, question } });
+  return { url: `${location.origin}/#r=${r.token}`, question };
+}
+$('#sendForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = e.submitter || $('#sendForm [type=submit]');
+  const desktop = !matchMedia('(pointer: coarse)').matches;
+  const win = desktop ? window.open('', '_blank') : null; // opened now, so popup blockers allow it
+  busy(btn, true);
+  try {
+    const { url, question } = await questionLink();
+    const from = state.family?.owner_name;
+    const text = `${state.person.name}, ${from ? `${from} has` : 'I have'} a question for you:\n\n“${question}”\n\nTap this link and answer in your own voice. No app needed:\n${url}`;
+    openWhatsApp(text, win);
+    track('invite_shared', { channel: 'whatsapp' });
+    closeSheets();
+    toast(`Sent. When ${state.person.name} answers, it shows up in the album.`);
+  } catch (err) { win?.close(); fail(err); }
+  finally { busy(btn, false); }
+});
+$('#sendCopy').addEventListener('click', async () => {
+  try {
+    const { url } = await questionLink();
+    try { await navigator.clipboard.writeText(url); toast('Link copied. Send it to them any way you like.'); }
+    catch { prompt('Copy this link:', url); }
+    track('invite_shared', { channel: 'copy' });
+  } catch (err) { fail(err); }
+});
+
+// ── Elder: answer one question from your own phone ─────────────
+const elder = { token: null, media: null, chunks: [], blob: null, stream: null, start: 0, stoppedAt: 0, timer: null, question: '', from: null };
+const isHindi = s => /[\u0900-\u097F]/.test(s || '');
+async function publicGet(path) {
+  const res = await fetch(path);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'This link isn’t working right now.');
+  return data;
+}
+function elderState(s) {
+  $('#eRec').hidden = s === 'done' || s === 'broken';
+  $('#eRec').classList.toggle('recording', s === 'recording');
+  $('#eRec').setAttribute('aria-pressed', String(s === 'recording'));
+  $('#eRec').setAttribute('aria-label', s === 'recording' ? 'Stop recording' : 'Start recording');
+  $('#eTime').hidden = s === 'idle' || s === 'done' || s === 'broken';
+  $('#eActions').hidden = s !== 'recorded';
+  $('#eDone').hidden = s !== 'done';
+  $('#eHear').hidden = s === 'done' || s === 'broken';
+  $('#eLabel').hidden = s === 'done' || s === 'broken';
+  $('#eLabel').innerHTML = s === 'recording'
+    ? 'Listening… tap again when you’re done<br><span lang="hi">सुन रहे हैं… पूरा हो जाए तो फिर दबाइए</span>'
+    : s === 'recorded' ? 'Done? Send it to your family<br><span lang="hi">हो गया? परिवार को भेज दीजिए</span>'
+    : 'Tap the circle and answer in your own words<br><span lang="hi">गोला दबाइए और अपनी भाषा में जवाब दीजिए</span>';
+}
+async function openElder(token) {
+  elder.token = token;
+  elderState('idle');
+  try {
+    const inv = await publicGet(`/api/invite/${token}`);
+    elder.question = inv.question; elder.from = inv.from;
+    $('#eQuestion').textContent = inv.question;
+    $('#eFrom').textContent = inv.from ? `${inv.from} is asking you` : 'Your family is asking you';
+    document.title = `${inv.question} · Memoria`;
+  } catch (err) {
+    $('#eQuestion').textContent = err.message;
+    elderState('broken');
+  }
+}
+function speakQuestion() {
+  if (!('speechSynthesis' in window) || !elder.question) return;
+  const u = new SpeechSynthesisUtterance(elder.question);
+  u.lang = isHindi(elder.question) ? 'hi-IN' : (navigator.language || 'en-IN');
+  u.rate = 0.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+$('#eHear').addEventListener('click', speakQuestion);
+$('#eRec').addEventListener('click', () => (elder.media?.state === 'recording' ? elderStop() : elderStart()));
+async function elderStart() {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('This phone’s browser can’t record. Try opening the link in Chrome.', 'error');
+  try { elder.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch { return toast('Please allow the microphone, then tap again.', 'error'); }
+  speechSynthesis.cancel?.();
+  const mime = pickMime();
+  elder.media = new MediaRecorder(elder.stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 });
+  elder.chunks = [];
+  elder.media.ondataavailable = e => e.data.size && elder.chunks.push(e.data);
+  elder.media.onstop = () => {
+    elder.blob = new Blob(elder.chunks, { type: elder.media.mimeType || 'audio/webm' });
+    elder.stream.getTracks().forEach(t => t.stop());
+  };
+  elder.media.start(1000);
+  elder.start = Date.now();
+  elder.timer = setInterval(() => {
+    const s = Math.floor((Date.now() - elder.start) / 1000);
+    $('#eTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    if (s >= 600) elderStop(); // ten minutes is plenty for one answer
+  }, 250);
+  elderState('recording');
+}
+function elderStop() {
+  elder.stoppedAt = Date.now();
+  clearInterval(elder.timer);
+  elder.media?.stop();
+  elderState('recorded');
+}
+$('#eRedo').addEventListener('click', () => { elder.blob = null; $('#eTime').textContent = '0:00'; elderState('idle'); });
+$('#eMore').addEventListener('click', () => { elder.blob = null; $('#eTime').textContent = '0:00'; elderState('idle'); });
+$('#eSend').addEventListener('click', async () => {
+  const btn = $('#eSend');
+  if (!elder.blob) await new Promise(r => setTimeout(r, 400));
+  if (!elder.blob?.size) return toast('Nothing was recorded. Please try again.', 'error');
+  busy(btn, true);
+  btn.dataset.label ||= btn.innerHTML;
+  btn.textContent = 'Sending… भेज रहे हैं';
+  try {
+    const form = new FormData();
+    form.append('audio', elder.blob, `answer.${elder.blob.type.includes('mp4') ? 'm4a' : 'webm'}`);
+    form.append('duration', String(Math.round((elder.stoppedAt - elder.start) / 1000) || ''));
+    const res = await fetch(`/api/invite/${elder.token}/record`, { method: 'POST', body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'It didn’t send. Please tap Send again.');
+    $('#eDoneText').textContent = `“${data.title}” is in the family album, in your own voice.`;
+    const who = data.from || 'the family';
+    $('#eTell').href = `https://wa.me/?text=${encodeURIComponent(`I answered your question on Memoria: “${elder.question}”. Open the family album to hear it.`)}`;
+    $('#eTell').textContent = `Tell ${who} on WhatsApp`;
+    elderState('done');
+  } catch (err) {
+    toast(err.message, 'error'); // the recording stays on the phone, so Send can be tapped again
+  } finally {
+    busy(btn, false);
+    btn.innerHTML = btn.dataset.label;
+  }
+});
+
+// ── Listen: one story, from a printed QR code or a shared link ──
+async function openListen(token) {
+  try {
+    const s = await publicGet(`/api/listen/${token}`);
+    $('#lTitle').textContent = s.title;
+    $('#lMeta').textContent = [s.person_name, s.memory_date, s.seconds ? mmss(s.seconds) : ''].filter(Boolean).join(' · ');
+    $('#lLabel').textContent = `Tap to hear ${s.person_name} tell it, in their own voice`;
+    $('#lPlay').hidden = false; $('#lLabel').hidden = false;
+    $('#lPlay').onclick = () => {
+      if (!player.audio.paused && player.audio.src.endsWith(s.url)) { player.audio.pause(); $('#lPlay').classList.remove('playing'); return; }
+      $('#lPlay').classList.add('playing');
+      playVoice(s.url, 0, null).catch(() => {});
+      player.audio.addEventListener('pause', () => $('#lPlay').classList.remove('playing'), { once: true });
+    };
+    document.title = `${s.title} · ${s.person_name} · Memoria`;
+  } catch (err) { $('#lTitle').textContent = err.message; }
+}
 
 // ── Lifetime ───────────────────────────────────────────────────
 function openUpgrade(reason) {

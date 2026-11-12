@@ -27,6 +27,17 @@ function verify(memoryId, exp, sig) {
   return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
+// Listen links: one story, play-only, no expiry. Printed in the keepsake book as a QR code.
+// They never carry the family key, and deleting the story kills the link.
+const listenSig = memoryId => crypto.createHmac('sha256', SIGNING_KEY).update(`listen:${memoryId}`).digest('base64url').slice(0, 22);
+const listenToken = memoryId => `${memoryId}.${listenSig(memoryId)}`;
+function verifyListen(token) {
+  const [id, sig] = String(token || '').split('.');
+  if (!/^[0-9a-f-]{36}$/i.test(id || '') || !sig) return null;
+  const a = Buffer.from(listenSig(id)), b = Buffer.from(sig);
+  return a.length === b.length && crypto.timingSafeEqual(a, b) ? id : null;
+}
+
 const save = (memoryId, familyId, { buffer, mime, duration, words, language }) => db.q(
   `INSERT INTO recordings (memory_id, family_id, mime, audio, size_bytes, duration_s, words, language)
    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -64,4 +75,4 @@ function clipFor(words, quote) {
   return { start: Math.max(0, spoken[a].start - 0.25), end: spoken[b].end + 0.4 };
 }
 
-module.exports = { signedUrl, verify, save, getAudio, getWords, clipFor };
+module.exports = { signedUrl, verify, listenToken, verifyListen, save, getAudio, getWords, clipFor };

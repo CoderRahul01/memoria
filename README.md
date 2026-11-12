@@ -23,10 +23,13 @@ Press record and let them talk. Memoria transcribes word-for-word, preserves the
 
 ## Key Features
 
+- **Question links for elders:** Send one question on WhatsApp. They open it on their own phone, hear it read out, tap once and answer. No app, no sign-up. The link can only record answers for that one person, it can't open the album, and an elder's answer is never turned away for a plan limit.
+- **Next questions:** After every story, Memoria suggests follow-ups on the people and places already mentioned, plus the parts of their life nobody has asked about yet, in the language the stories are told in.
+- **Verified quotes in any language:** Ask in English, Hinglish or Hindi. Gemini must answer with exact quotes, and the server checks every quote against the real transcript before showing it. If nothing they said backs the answer, Memoria says it hasn't been recorded yet. Answers are about the person, never in their voice.
 - **Cassette Audio Recorder:** Captures genuine speech with live audio level analysis and winding reels.
 - **Precision Audio Alignment (`clipFor`):** Answers in the "Ask" tab cite exact quotes and provide a one-tap button to play the 4-second audio window where the loved one spoke.
 - **Strict Anti-Hallucination:** Memoria never synthesizes or deepfakes a voice. Listen strictly streams the genuine recording.
-- **Interactive QR Keepsake Books:** Print-ready heirloom books with embedded audio QR codes—point any phone camera at the physical paper to hear their voice.
+- **QR keepsake books:** Each QR code is a listen-only link to that one story, drawn in the browser. The family key is never printed, and deleting a story kills its link.
 - **Zero-Knowledge Multi-Tenancy:** Families access their private space via a secret key (`#k=...`), with zero cross-tenant database visibility.
 
 ---

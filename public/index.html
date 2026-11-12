@@ -174,6 +174,11 @@
 
       <!-- Life thread: memories placed on a line by the year they happened -->
       <div class="wrap">
+        <div class="nudge" id="nudge" hidden>
+          <div><b id="nudgeTitle">They don’t need the app.</b>
+            <span>Send one question to <span class="pposs">their</span> phone. One tap to answer, and it lands right here.</span></div>
+          <button class="pill pill-accent" data-send>Send a question</button>
+        </div>
         <figure class="thread" id="thread" hidden>
           <figcaption class="eyebrow">Their life, so far</figcaption>
           <div class="thread-track" id="threadTrack"></div>
@@ -208,8 +213,13 @@
       <div class="wrap narrow">
         <p class="eyebrow">Record</p>
         <h2 class="heading">Just let <span class="pname">them</span> talk.</h2>
-        <p class="muted">Not sure where to start? Tap a question and Memoria will read it out loud.</p>
+        <p class="muted">Not sure where to start? Tap a question and Memoria will read it out loud.
+          Not sitting together? <button class="linkish" data-send>Send a question to <span class="pposs">their</span> phone</button>.</p>
 
+        <div class="picked" id="picked" hidden>
+          <p class="eyebrow">Picked from what <span class="pname">they</span> told you</p>
+          <div class="prompts" id="pickedList"></div>
+        </div>
         <div class="prompts" id="prompts"></div>
 
         <!-- Cassette: the reels turn while recording and the tape winds from left to right as time passes -->
@@ -323,6 +333,43 @@
     </section>
 
     <!-- ── Print-only keepsake ──────────────────────────── -->
+    <!-- ── ELDER: answer one question from your own phone ── -->
+    <section class="view solo" id="view-elder" hidden>
+      <div class="solo-wrap">
+        <p class="eyebrow" id="eFrom">Your family is asking you</p>
+        <h1 class="solo-q" id="eQuestion">…</h1>
+        <button class="pill pill-line" id="eHear" type="button">🔊 Hear the question · <span lang="hi">सवाल सुनिए</span></button>
+        <button class="big-rec" id="eRec" type="button" aria-label="Start recording" aria-pressed="false"><span></span></button>
+        <p class="solo-label" id="eLabel">Tap the circle and answer in your own words<br><span lang="hi">गोला दबाइए और अपनी भाषा में जवाब दीजिए</span></p>
+        <p class="solo-time" id="eTime" hidden>0:00</p>
+        <div class="row-actions solo-actions" id="eActions" hidden>
+          <button class="pill pill-line" id="eRedo" type="button">Record again · <span lang="hi">फिर से</span></button>
+          <button class="pill pill-accent" id="eSend" type="button">Send to the family · <span lang="hi">भेजिए</span></button>
+        </div>
+        <div class="solo-done" id="eDone" hidden>
+          <h2 class="heading-sm">Thank you. It’s saved. <span lang="hi">धन्यवाद, सहेज लिया।</span></h2>
+          <p id="eDoneText">Your answer is in the family album, in your own voice.</p>
+          <div class="row-actions">
+            <a class="pill pill-accent" id="eTell" target="_blank" rel="noopener">Tell them on WhatsApp</a>
+            <button class="pill pill-line" id="eMore" type="button">Add more · <span lang="hi">और बताइए</span></button>
+          </div>
+        </div>
+        <p class="fineprint">Only your family can hear this. Memoria never makes up your voice or your words.</p>
+      </div>
+    </section>
+
+    <!-- ── LISTEN: one story, from a printed QR code or a shared link ── -->
+    <section class="view solo" id="view-listen" hidden>
+      <div class="solo-wrap">
+        <p class="eyebrow">A story kept with Memoria</p>
+        <h1 class="solo-q" id="lTitle">…</h1>
+        <p class="muted" id="lMeta"></p>
+        <button class="big-rec play" id="lPlay" type="button" aria-label="Play the recording" hidden><span></span></button>
+        <p class="solo-label" id="lLabel" hidden>Tap to hear it in their own voice</p>
+        <a class="pill pill-line" href="/">What is Memoria?</a>
+      </div>
+    </section>
+
     <section class="keepsake" id="keepsake" aria-hidden="true"></section>
   </main>
 
@@ -361,9 +408,7 @@
       <button class="sheet-close" data-close aria-label="Close">×</button>
       <p class="eyebrow" id="mMeta"></p>
       <h3 class="heading" id="mTitle"></h3>
-      <div id="mIllustrationBox" class="illustration-box" hidden>
-        <img id="mIllustrationImg" alt="Memory illustration" class="memory-illustration" loading="lazy">
-      </div>
+      <p class="m-asked" id="mAsked" hidden></p>
       <p class="m-content" id="mContent"></p>
       <div class="tags" id="mTags"></div>
       <label class="m-year" id="mYearRow" hidden>When <input id="mYear" maxlength="40" placeholder="Leave blank if unsure, or “around 1978”"></label>
@@ -371,11 +416,28 @@
       <div class="row-actions">
         <button class="pill pill-line danger" id="mDelete">Delete</button>
         <button class="pill pill-line" id="mEdit">Fix words or year</button>
-        <button class="pill pill-line" id="mIllustrate">🎨 Illustrate</button>
-        <button class="pill pill-line" id="mShareWhatsApp">💬 WhatsApp</button>
+        <button class="pill pill-line" id="mShareWhatsApp">Share on WhatsApp</button>
         <button class="pill pill-accent" id="mPlay">Listen</button>
       </div>
     </article>
+  </div>
+
+  <!-- Send a question sheet -->
+  <div class="sheet-backdrop" id="sendSheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sendTitle">
+      <button class="sheet-close" data-close aria-label="Close">×</button>
+      <p class="eyebrow">No app, no sign-up for them</p>
+      <h3 class="heading-sm" id="sendTitle">Send <span class="pname">them</span> one question</h3>
+      <p class="muted">They open the link on their own phone, hear the question, and tap once to answer. Their voice lands in this album. The link can only record answers, it can’t open the album.</p>
+      <div class="prompts" id="sendChoices"></div>
+      <form class="send-form" id="sendForm">
+        <textarea id="sendQ" rows="2" maxlength="200" required placeholder="Pick one above, or write your own question"></textarea>
+        <div class="row-actions">
+          <button class="pill pill-line" id="sendCopy" type="button">Copy link</button>
+          <button class="pill pill-accent" type="submit">Send on WhatsApp</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- Person sheet -->
