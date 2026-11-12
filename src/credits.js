@@ -17,7 +17,8 @@ const num = (name, fallback) => {
 const BUDGET = {
   stt_minutes: num('SCRIBE_MONTHLY_MINUTES', 300),
   tinker_calls: num('TINKER_MONTHLY_CALLS', 400),
-  storage_mb: num('NEON_STORAGE_MB', 1024)               // Neon branch size limit; recordings live here
+  storage_mb: num('NEON_STORAGE_MB', 1024),              // Neon branch size limit; recordings live here
+  hf_usd: num('HF_MONTHLY_USD', 15)                      // Hugging Face credits: hard monthly spend cap
 };
 const RESERVE = 0.1; // keep 10% of every monthly budget back for paying families
 
@@ -32,7 +33,15 @@ async function refreshOpenRouter() {
   return freeToday;
 }
 
+// Read at most every 30s (AI calls check budgets often); spend recorded in between is added locally.
+let usageCache = null, usageAt = 0;
 async function monthUsage() {
+  if (usageCache && Date.now() - usageAt < 30_000) return usageCache;
+  usageCache = await readUsage();
+  usageAt = Date.now();
+  return usageCache;
+}
+async function readUsage() {
   const rows = await db.q(`SELECT kind, COALESCE(SUM(units), 0)::float AS units FROM credit_ledger
                            WHERE created_at >= date_trunc('month', now()) GROUP BY kind`);
   const used = Object.fromEntries(rows.map(r => [r.kind, r.units]));
@@ -59,6 +68,7 @@ async function allow(kind, units, family) {
 }
 
 function record(familyId, kind, units, note = null) {
+  if (usageCache) usageCache[kind] = (usageCache[kind] || 0) + Number(units || 0);
   return db.q('INSERT INTO credit_ledger (family_id, kind, units, note) VALUES ($1,$2,$3,$4)', [familyId || null, kind, units, note])
     .catch(e => console.warn('ledger:', e.message));
 }
@@ -71,6 +81,7 @@ async function snapshot() {
     db.q(`DELETE FROM credits WHERE provider = 'backboard'`).catch(() => {}),
     db.setCredit('elevenlabs_stt', 'ElevenLabs transcription (minutes this month)', BUDGET.stt_minutes - (used.stt_minutes || 0), 'minutes_left', BUDGET.stt_minutes),
     db.setCredit('neon_storage', 'Recording storage (database)', Math.round(BUDGET.storage_mb - (used.storage_mb || 0)), 'mb_left', BUDGET.storage_mb),
+    db.setCredit('hf', 'Hugging Face Gemma 4 overflow (USD left this month)', Math.round((BUDGET.hf_usd - (used.hf_usd || 0)) * 100) / 100, 'usd_left', BUDGET.hf_usd),
     db.setCredit('tinker', 'Tinker backup model (calls this month)', BUDGET.tinker_calls - (used.tinker_calls || 0), 'calls_left', BUDGET.tinker_calls)
   ]);
 }

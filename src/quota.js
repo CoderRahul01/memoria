@@ -9,7 +9,7 @@
 const day = () => new Date().toISOString().slice(0, 10);
 const hour = () => Math.floor(Date.now() / 3_600_000);
 
-const FREE_AI_DAILY_CAP = Number(process.env.FREE_AI_DAILY_CAP) || 1200;
+const FREE_AI_DAILY_CAP = Number(process.env.FREE_AI_DAILY_CAP) || 3000; // paid overflow is separately capped in dollars (credits.js)
 let freeAi = { day: day(), n: 0 };
 const perFamily = new Map();
 
