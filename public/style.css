@@ -317,7 +317,18 @@ body:not(.mode-landing) .landing-only { display: none !important; }
 .tribute { font: 400 clamp(22px, 2.6vw, 30px)/1.45 var(--serif); margin: 0 0 28px; white-space: pre-line; }
 .tribute.loading { opacity: .55; }
 .keep-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; padding: 40px 0 96px; }
-.keep-grid .panel:first-child { grid-row: span 2; }
+.keep-grid .panel:first-child { grid-row: span 2; display: flex; flex-direction: column; }
+.sent { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.sent .eyebrow { margin: 0; }
+.sent .pill { align-self: flex-start; margin-top: auto; }
+.sent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sent-list li { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--card); display: grid; gap: 4px; }
+.sent-list li .q { font: 17px/1.4 var(--serif); }
+.sent-list li small { font-size: 13px; color: var(--ink-3); }
+.sent-list li.done { border-left: 3px solid var(--ok); }
+.sent-list li.done small { color: var(--ok); }
+.sent-list li.empty { color: var(--ink-2); border-style: dashed; }
+.sent-list li.more { border: 0; background: none; padding: 2px 4px; font-size: 14px; color: var(--ink-3); }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card); padding: 28px; }
 .panel > p { color: var(--ink-2); }
 .voice-status { margin: 16px 0; padding: 12px 14px; border-radius: 10px; background: var(--paper); font-size: 15px; }
