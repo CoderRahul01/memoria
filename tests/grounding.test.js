@@ -132,3 +132,15 @@ describe('scale and cost guards', () => {
     assert.equal(quota.allowModel({ plan: 'lifetime' }), true);
   });
 });
+
+describe('hybrid transcription alignment', () => {
+  const { alignWords } = require('../src/stt');
+  it('keeps the accurate words and borrows exact timings where words match', () => {
+    const timed = [['मेरी', 0, 0.3], ['मा', 0.3, 0.5], ['सुबह', 0.5, 0.9], ['डाल', 1.0, 1.4], ['बनाते', 1.4, 1.8]].map(([text, start, end]) => ({ text, start, end }));
+    const w = alignWords('मेरी माँ सुबह दाल बनाते', timed, 2);
+    assert.deepEqual(w.map(x => x.text), ['मेरी', 'माँ', 'सुबह', 'दाल', 'बनाते']);
+    assert.deepEqual([w[0].start, w[2].start, w[4].start], [0, 0.5, 1.4]);
+    assert.ok(w[1].approx && w[3].approx, 'unmatched words are marked approximate');
+    assert.ok(w.every((x, i) => i === 0 || x.start >= w[i - 1].start), 'timings never go backwards');
+  });
+});

@@ -85,15 +85,59 @@ async function transcribe(buffer, mime, filename, { seconds, family } = {}) {
     const heard = await elevenlabs.transcribe(buffer, mime, filename).catch(e => (console.warn('Scribe:', e.message), null));
     if (heard) { credits.record(family?.id, 'stt_minutes', minutes); return { ...heard, engine: 'scribe' }; }
   }
-  if (GROQ_KEY) {
-    const heard = await viaGroq(buffer, mime, filename).catch(e => (console.warn('Groq STT:', e.message), null));
-    if (heard) return { ...heard, engine: 'groq' };
+  // Free families: Gemini writes the words (most accurate on Hindi in testing; Whisper misheard a year
+  // as "1900"), Groq Whisper supplies when each word was said. Both run at once; either works alone.
+  const [groq, gem] = await Promise.all([
+    GROQ_KEY ? viaGroq(buffer, mime, filename).catch(e => (console.warn('Groq STT:', e.message), null)) : null,
+    GEMINI_KEY && quota.allowModel(family) ? viaGemini(buffer, mime, seconds).catch(e => (console.warn('Gemini STT:', e.message), null)) : null
+  ]);
+  if (gem && groq?.words?.length) {
+    return { text: gem.text, words: alignWords(gem.text, groq.words, seconds), language: groq.language || gem.language, engine: 'gemini+groq' };
   }
-  if (GEMINI_KEY && quota.allowModel(family)) {
-    const heard = await viaGemini(buffer, mime, seconds).catch(e => (console.warn('Gemini STT:', e.message), null));
-    if (heard) return { ...heard, engine: 'gemini' };
-  }
+  if (gem) return { ...gem, engine: 'gemini' };
+  if (groq) return { ...groq, engine: 'groq' };
   return null;
 }
 
-module.exports = { transcribe, enabled, approxWords };
+const norm = s => String(s).toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
+
+/**
+ * Put Whisper's timings onto Gemini's words. Words that match exactly become anchors (longest common
+ * subsequence); words in between get times interpolated between their anchors. Long recordings fall
+ * back to proportional placement to keep the work bounded.
+ */
+function alignWords(text, timed, seconds) {
+  const tokens = String(text).split(/\s+/).filter(Boolean);
+  const T = timed.map(w => ({ ...w, n: norm(w.text) }));
+  const A = tokens.map(norm);
+  const n = A.length, m = T.length;
+  if (!n || !m) return approxWords(text, seconds);
+  const anchor = new Array(n).fill(-1);
+  if (n * m <= 4_000_000) {
+    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = A[i] && A[i] === T[j].n ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    for (let i = 0, j = 0; i < n && j < m;) {
+      if (A[i] && A[i] === T[j].n) { anchor[i] = j; i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) i++; else j++;
+    }
+  }
+  const end = T[m - 1].end;
+  const points = [{ i: -1, t: T[0].start }];
+  anchor.forEach((j, i) => { if (j >= 0) points.push({ i, t: T[j].start, e: T[j].end }); });
+  points.push({ i: n, t: end });
+  const out = [];
+  for (let k = 0; k < points.length - 1; k++) {
+    const a = points[k], b = points[k + 1];
+    if (a.i >= 0) out.push({ text: tokens[a.i], start: round(a.t), end: round(a.e) });
+    const gap = b.i - a.i - 1;
+    const from = a.i >= 0 ? a.e : a.t;
+    for (let g = 1; g <= gap; g++) {
+      const s = from + ((b.t - from) * (g - 1)) / gap, e = from + ((b.t - from) * g) / gap;
+      out.push({ text: tokens[a.i + g], start: round(s), end: round(e), approx: true });
+    }
+  }
+  return out;
+}
+
+module.exports = { transcribe, enabled, approxWords, alignWords };
