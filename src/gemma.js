@@ -11,6 +11,7 @@ const gemini = require('./gemini');
 const openrouter = require('./openrouter');
 const credits = require('./credits');
 const quota = require('./quota');
+const hf = require('./hf');
 
 const TINKER_KEY = configured('TINKER_API_KEY');
 const TINKER_BASE = process.env.TINKER_BASE_URL || 'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1';
@@ -53,6 +54,11 @@ async function generate(prompt, system, family = null, opts = {}) {
   if (openrouter.enabled() && await credits.allow('openrouter', 1, family)) {
     const out = await openrouter.complete(prompt, system);
     if (out) return out;
+  }
+  // Paid overflow on Hugging Face credits (Gemma 4), inside a monthly dollar budget.
+  if (hf.enabled() && await credits.allow('hf_usd', hf.estimateUsd(prompt, system), family)) {
+    const out = await hf.complete(prompt, system);
+    if (out) { credits.record(family?.id, 'hf_usd', out.usd, out.engine); return { text: out.text, engine: out.engine }; }
   }
   if (TINKER_KEY && TINKER_PATH && await credits.allow('tinker_calls', 1, family)) {
     try {
@@ -374,8 +380,9 @@ async function checkHealth() {
   const or = openrouter.enabled();
   const tinker = !!(TINKER_KEY && TINKER_PATH);
   return {
-    engine: gem ? `gemini:${gemini.modelLabel()}` : or ? `openrouter:${openrouter.modelLabel()}` : tinker ? `tinker:${TINKER_LABEL}` : 'heuristic',
+    engine: gem ? `gemini:${gemini.modelLabel()}` : or ? `openrouter:${openrouter.modelLabel()}` : hf.enabled() ? `hf:${hf.modelLabel()}` : tinker ? `tinker:${TINKER_LABEL}` : 'heuristic',
     gemini: gem,
+    hf: hf.enabled(),
     openrouter: or,
     tinker,
     tinkerModel: tinker ? TINKER_LABEL : null

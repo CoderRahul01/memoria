@@ -47,6 +47,7 @@ Press record and let them talk. Memoria transcribes word-for-word, preserves the
 | Audio | Cloudflare R2 | 10 GB, free egress | ~40,000 minutes at 32 kbps; private bucket, presigned links that expire in 15 min |
 | Transcription | ElevenLabs → Groq Whisper → Gemini | Scribe credits | Scribe for Lifetime; free families use Groq (word timings) then Gemini |
 | AI | Gemini API (+ Gemma via OpenRouter) | daily request caps | Flash-Lite for cheap tasks, cached suggestions/tributes, 60s back-off on 429, `FREE_AI_DAILY_CAP` for free families (Lifetime never capped) |
+| AI overflow | Hugging Face Inference credits (Gemma 4 26B via DeepInfra) | pay-as-you-go, ~$0.0004 per Ask | Only after Gemini and free OpenRouter; real token usage priced into the ledger; hard monthly cap `HF_MONTHLY_USD` (default $15, 10% reserved for Lifetime) |
 
 Free plan: 2 loved ones, 30 stories, 60 minutes of voice, 20 questions a day. Lifetime ($19 once): everyone, unlimited stories, 20 hours of voice, best transcription, keepsake book. An elder's answer from a question link is never refused.
 
@@ -55,6 +56,8 @@ Environment for the free stack (all optional; each falls back gracefully):
 ```
 R2_ACCOUNT_ID=…  R2_ACCESS_KEY_ID=…  R2_SECRET_ACCESS_KEY=…  R2_BUCKET=memoria-audio
 GROQ_API_KEY=…                 # free Whisper transcription with word timings
+HF_TOKEN=…                     # Hugging Face token with "Make calls to Inference Providers"
+HF_MONTHLY_USD=15              # hard monthly cap on Hugging Face spend
 GEMINI_FAST_MODEL=gemini-2.5-flash-lite
 FREE_AI_DAILY_CAP=1200         # model calls/day shared by all free families
 ```
