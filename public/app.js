@@ -14,10 +14,11 @@ const state = {
   freshId: null,
   view: 'home',
   next: null,      // { for: 'name:count', questions: [...] }
-  asked: null      // the question that prompted the story being recorded
+  asked: null,     // the question that prompted the story being recorded
+  everyone: false  // Ask across the whole family
 };
 
-const FILTER_LABELS = { all: 'All', career: 'Career & Work', recipe: 'Recipes', story: 'Stories', advice: 'Advice', family: 'Family', event: 'Events', place: 'Places', other: 'Other' };
+const FILTER_LABELS = { all: 'All', career: 'Career & Work', recipe: 'Recipes', story: 'Stories', advice: 'Advice', family: 'Family', event: 'Events', place: 'Places', knowhow: 'Family know-how', other: 'Other' };
 
 const PROMPTS = [
   'What’s a recipe only you know how to make?',
@@ -27,7 +28,9 @@ const PROMPTS = [
   'Who was your best friend growing up?',
   'What was your first job, and what did it pay?',
   'What’s the hardest thing you ever went through?',
-  'Which festival do you remember most, and why?'
+  'Which festival do you remember most, and why?',
+  'What’s a home remedy you trust, and how do you make it?',
+  'Which things in this house only you know how to handle?'
 ];
 const OWN_PROMPTS = [
   'What do you want your kids to know about you?',
@@ -42,7 +45,8 @@ const DAD_PROMPTS = [
   'Tell me about the day I was born, and what you felt.',
   'What is something your own parents taught you that stayed with you?',
   'What was your first job or business, and how did you start?',
-  'What advice would you give when life hits you hard?'
+  'What advice would you give when life hits you hard?',
+  'Which papers, accounts or people should we know about if you’re not around to ask?'
 ];
 const MOM_PROMPTS = [
   'What’s a dish or recipe you love cooking for the family, and the secret trick?',
@@ -50,7 +54,8 @@ const MOM_PROMPTS = [
   'Tell me the story of how you and Dad met.',
   'What was a hard moment you pushed through without telling anyone?',
   'What is your favorite memory of us when we were growing up?',
-  'What value do you want our family to hold onto forever?'
+  'What value do you want our family to hold onto forever?',
+  'How do we do the puja at home, step by step?'
 ];
 const PARTNER_PROMPTS = [
   'What was your exact first impression of me the day we met?',
@@ -64,7 +69,8 @@ const GRANDPARENT_PROMPTS = [
   'Tell me about our ancestors, where we came from, and what they were like.',
   'What festival or celebration from your youth do you miss most?',
   'How did you make your signature recipe back in the day?',
-  'What advice do you want every grandchild to carry in their heart?'
+  'What advice do you want every grandchild to carry in their heart?',
+  'Which nuskha or home remedy did your mother swear by?'
 ];
 
 // ── Storage (may be unavailable in private mode) ───────────────
@@ -342,7 +348,7 @@ $('#filters').addEventListener('click', e => {
 
 function cardHTML(m, i, example = false) {
   const when = m.memory_date || formatDate(m.created_at);
-  return `<button class="mcard ${m.id === state.freshId ? 'fresh' : ''}" data-id="${m.id || ''}" style="--i:${i}" ${example ? 'tabindex="-1"' : ''}>
+  return `<button class="mcard ${m.id === state.freshId || state.freshIds?.has(m.id) ? 'fresh' : ''}" data-id="${m.id || ''}" style="--i:${i}" ${example ? 'tabindex="-1"' : ''}>
       <span class="meta"><span class="cat">${esc(example ? 'example' : m.category)}</span><span>${m.via === 'elder_link' ? 'from their phone · ' : ''}${esc(when)}</span></span>
       <h3>${esc(m.title)}</h3>
       <p>${esc(m.content)}</p>
@@ -366,7 +372,24 @@ function renderMemories() {
     $('#memoryGrid').innerHTML = EXAMPLES.map((m, i) => cardHTML(m, i, true)).join('');
     return;
   }
+  // New answers from their phone since this album was last opened.
+  // "Last opened" is read once per visit, so the banner survives re-renders until they leave.
+  const pname = state.person?.name;
+  state.seenAt ||= {};
+  if (pname && state.view === 'home' && !(pname in state.seenAt)) {
+    state.seenAt[pname] = +lsGet(`memoria.seen.${pname}`) || 0;
+    lsSet(`memoria.seen.${pname}`, String(Date.now()));
+  }
+  const seen = state.seenAt[pname] ?? Infinity;
+  const fresh = state.memories.filter(m => m.via === 'elder_link' && new Date(m.created_at) > seen);
   $('#nudge').hidden = !state.memories.length || isSelf();
+  $('#nudge').classList.toggle('fresh', fresh.length > 0);
+  if (state.person && !isSelf()) {
+    $('#nudgeTitle').textContent = fresh.length
+      ? `${state.person.name} answered ${fresh.length === 1 ? 'a question' : `${fresh.length} questions`} from their phone`
+      : `${state.person.name} doesn’t need the app.`;
+  }
+  state.freshIds = fresh.length && seen ? new Set(fresh.map(m => m.id)) : null;
   $('#memoryGrid').innerHTML = list.length ? list.map((m, i) => cardHTML(m, i)).join('')
     : searching ? `<p class="muted">No story mentions “${esc($('#searchInput').value)}” yet. Try asking about it instead.</p>` : '';
   state.freshId = null;
@@ -374,7 +397,13 @@ function renderMemories() {
 
 // The life thread: dated memories placed along a line by year.
 function renderThread() {
-  const dated = state.memories.map(m => ({ m, y: yearOf(m.memory_date) })).filter(x => x.y);
+  // One dot per year: stories from the same year share it (the label says how many).
+  const byYear = new Map();
+  for (const m of state.memories) {
+    const y = yearOf(m.memory_date);
+    if (y) byYear.set(y, [...(byYear.get(y) || []), m]);
+  }
+  const dated = [...byYear].map(([y, ms]) => ({ y, m: ms[0], more: ms.length - 1 }));
   const fig = $('#thread');
   if (dated.length < 2) { fig.hidden = true; return; }
   const ys = dated.map(d => d.y), min = Math.min(...ys), max = Math.max(...ys);
@@ -385,8 +414,9 @@ function renderThread() {
   $('#threadTrack').innerHTML = dated.map((d, i) => {
     const left = 4 + ((d.y - min) / span) * 92;
     const unsure = isUnsure(d.m.memory_date);
-    return `<button class="t-dot ${i % 2 ? 'up' : ''} ${unsure ? 'unsure' : ''}" style="left:${left}%;--i:${i}" data-id="${d.m.id}" aria-label="${esc(d.m.title)}, ${esc(d.m.memory_date)}">
-      <span class="yr">${unsure ? 'c. ' : ''}${d.y}</span><span class="tt">${esc(d.m.title)}</span></button>`;
+    const edge = left < 22 ? 'edge-l' : left > 78 ? 'edge-r' : '';
+    return `<button class="t-dot ${i % 2 ? 'up' : ''} ${unsure ? 'unsure' : ''} ${edge}" style="left:${left}%;--i:${i}" data-id="${d.m.id}" aria-label="${esc(d.m.title)}, ${esc(d.m.memory_date)}">
+      <span class="yr">${unsure ? 'c. ' : ''}${d.y}</span><span class="tt">${esc(d.m.title)}${d.more ? ` +${d.more}` : ''}</span></button>`;
   }).join('');
 }
 $('#threadTrack').addEventListener('click', e => {
@@ -825,8 +855,28 @@ function showSaved(m) {
 }
 
 // ── Ask ────────────────────────────────────────────────────────
+function renderScope() {
+  const many = state.persons.length > 1;
+  $('#askScope').hidden = !many;
+  if (!many) state.everyone = false;
+  $$('#askScope button').forEach(b => b.setAttribute('aria-checked', String((b.dataset.scope === 'all') === state.everyone)));
+}
+$('#askScope').addEventListener('click', e => {
+  const b = e.target.closest('button[data-scope]');
+  if (!b) return;
+  state.everyone = b.dataset.scope === 'all';
+  renderScope();
+  renderSuggestions();
+});
+
 function renderSuggestions() {
   if (!state.person) return;
+  renderScope();
+  if (state.everyone) {
+    $('#suggestions').innerHTML = $('#chat').children.length ? '' : ['What did everyone say about our village?', 'Who remembers the wedding differently?', 'Which recipes have we kept?']
+      .map(q => `<button>${esc(q)}</button>`).join('');
+    return;
+  }
   const p = isSelf() ? 'I' : state.person.name;
   const recipe = state.memories.find(m => m.category === 'recipe');
   const dated = state.memories.find(m => yearOf(m.memory_date));
@@ -851,25 +901,27 @@ $('#chatForm').addEventListener('submit', async e => {
   $('#chatInput').value = '';
   $('#suggestions').innerHTML = '';
   addMsg('user', esc(q));
-  const name = state.person.name;
+  const everyone = state.everyone && state.persons.length > 1;
+  const name = everyone ? 'The family' : state.person.name;
   const bubble = addMsg('bot', `<p class="who">${esc(name)}</p><span class="typing"><span></span><span></span><span></span></span>`);
   try {
     const speak = $('#speakToggle').checked;
-    const r = await api('/api/chat', { method: 'POST', body: { question: q, person_name: name } });
-    const who = isSelf() ? 'yourself' : name;
+    const r = await api('/api/chat', { method: 'POST', body: everyone ? { question: q, everyone: true } : { question: q, person_name: name } });
+    const whoOf = s => everyone ? (s.person_name || 'them') : isSelf() ? 'yourself' : name;
     const quotes = r.sources.filter(s => s.quote).map((s, i) => `
       <figure class="quote">
         <blockquote>“${esc(s.quote)}”</blockquote>
         <div class="quote-actions">
-          ${s.voice ? `<button class="hear" data-i="${i}">▶ Hear ${esc(who)} say it${s.voice.start ? ` · ${mmss(s.voice.start)}` : ''}</button>` : ''}
-          <button class="src" data-id="${s.id}">From “${esc(s.title)}”${s.memory_date ? ` · ${esc(s.memory_date)}` : ''}</button>
+          ${s.voice ? `<button class="hear" data-i="${i}">▶ Hear ${esc(whoOf(s))} say it${s.voice.start ? ` · ${mmss(s.voice.start)}` : ''}</button>` : ''}
+          <button class="src" data-id="${s.id}">${everyone ? `${esc(s.person_name)} · ` : ''}From “${esc(s.title)}”${s.memory_date ? ` · ${esc(s.memory_date)}` : ''}</button>
         </div>
       </figure>`).join('');
     bubble.innerHTML = `
       <p class="who">${esc(name)}</p>
       <p class="answer">${esc(r.answer)}</p>
-      ${r.grounded && quotes ? `<p class="quote-label">In ${esc(isSelf() ? 'your' : 'their')} own words</p>${quotes}` : ''}
-      ${!r.grounded ? `<div class="not-yet">${esc(isSelf() ? 'You haven’t' : name + ' hasn’t')} talked about this yet. It could be a great question for the next recording.
+      ${r.grounded && quotes ? `<p class="quote-label">In ${esc(isSelf() && !everyone ? 'your' : 'their')} own words</p>${quotes}` : ''}
+      ${!r.grounded && everyone ? `<div class="not-yet">Nobody in the family has talked about this yet. Ask someone in the next recording.</div>` : ''}
+      ${!r.grounded && !everyone ? `<div class="not-yet">${esc(isSelf() ? 'You haven’t' : name + ' hasn’t')} talked about this yet. It could be a great question for the next recording.
          <div class="row-actions"><button class="pill pill-accent" data-record>Record this story</button></div></div>` : ''}
       `;
     const voiced = r.sources.filter(s => s.quote);
@@ -880,6 +932,7 @@ $('#chatForm').addEventListener('submit', async e => {
     }));
     bubble.querySelectorAll('.quote .src').forEach(b => (b.onclick = async () => {
       const m = state.memories.find(x => x.id === b.dataset.id) || await api(`/api/memories/${b.dataset.id}`).catch(() => null);
+      if (m && everyone) m.person_name ||= voiced.find(s => s.id === m.id)?.person_name;
       openMemory(m);
     }));
     bubble.querySelector('[data-record]')?.addEventListener('click', () => {
@@ -1100,7 +1153,7 @@ $('#sendCopy').addEventListener('click', async () => {
 });
 
 // ── Elder: answer one question from your own phone ─────────────
-const elder = { token: null, media: null, chunks: [], blob: null, stream: null, start: 0, stoppedAt: 0, timer: null, question: '', from: null };
+const elder = { token: null, media: null, chunks: [], blob: null, stream: null, start: 0, stoppedAt: 0, timer: null, question: '', from: null, follow: false, next: null };
 const isHindi = s => /[\u0900-\u097F]/.test(s || '');
 async function publicGet(path) {
   const res = await fetch(path);
@@ -1177,6 +1230,15 @@ function elderStop() {
 }
 $('#eRedo').addEventListener('click', () => { elder.blob = null; $('#eTime').textContent = '0:00'; elderState('idle'); });
 $('#eMore').addEventListener('click', () => { elder.blob = null; $('#eTime').textContent = '0:00'; elderState('idle'); });
+// The interviewer's follow-up: same screen, the new question, answer again.
+$('#eFollowBtn').addEventListener('click', () => {
+  elder.question = elder.next; elder.follow = true; elder.blob = null;
+  $('#eQuestion').textContent = elder.question;
+  $('#eTime').textContent = '0:00';
+  elderState('idle');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  speakQuestion();
+});
 $('#eSend').addEventListener('click', async () => {
   const btn = $('#eSend');
   if (!elder.blob) await new Promise(r => setTimeout(r, 400));
@@ -1188,6 +1250,7 @@ $('#eSend').addEventListener('click', async () => {
     const form = new FormData();
     form.append('audio', elder.blob, `answer.${elder.blob.type.includes('mp4') ? 'm4a' : 'webm'}`);
     form.append('duration', String(Math.round((elder.stoppedAt - elder.start) / 1000) || ''));
+    if (elder.follow) form.append('follow', '1');
     const res = await fetch(`/api/invite/${elder.token}/record`, { method: 'POST', body: form });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'It didn’t send. Please tap Send again.');
@@ -1195,6 +1258,10 @@ $('#eSend').addEventListener('click', async () => {
     const who = data.from || 'the family';
     $('#eTell').href = `https://wa.me/?text=${encodeURIComponent(`I answered your question on Memoria: “${elder.question}”. Open the family album to hear it.`)}`;
     $('#eTell').textContent = `Tell ${who} on WhatsApp`;
+    elder.next = data.follow_up || null;
+    $('#eFollow').hidden = !elder.next;
+    $('#eFollowQ').textContent = elder.next || '';
+    $('#eMore').hidden = !!elder.next;
     elderState('done');
   } catch (err) {
     toast(err.message, 'error'); // the recording stays on the phone, so Send can be tapped again

@@ -146,7 +146,7 @@ Rules: never invent a year the speaker didn't say. If they sound unsure ("I thin
 Respond ONLY with valid JSON (no markdown):
 {
   "title": "short memorable title (max 8 words)",
-  "category": "one of: recipe, story, advice, career, event, family, place, other",
+  "category": "one of: recipe, story, advice, career, event, family, place, knowhow, other (knowhow = practical family know-how: remedies, rituals, how the house runs, doctors, documents)",
   "tags": ["3-5 short lowercase tags"],
   "summary": "2-3 sentence clean summary, written warmly in third person",
   "memory_date": "the date or period exactly as sure as the speaker was, e.g. \"1968\", \"around 1978\", \"1978 or 1979\", \"late 1970s\"; null if they never said when",
@@ -230,7 +230,7 @@ function parseJSON(text) {
  * with the person's real words is dropped, and with nothing left we say it hasn't been recorded yet.
  * Answers are about the person, never in their voice.
  */
-async function answerQuestion(question, memories, personName = 'them', family = null) {
+async function answerQuestion(question, memories, personName = 'them', family = null, { everyone = false } = {}) {
   const notYet = /[\u0900-\u097F]/.test(question)
     ? `${personName} ने इसके बारे में अभी तक कुछ रिकॉर्ड नहीं किया है। अगली बार यही सवाल पूछिए।`
     : `${personName} hasn't talked about that yet. It could be a good question for the next recording.`;
@@ -241,14 +241,17 @@ async function answerQuestion(question, memories, personName = 'them', family = 
   const pool = [...ranked, ...memories].filter((m, i, a) => a.findIndex(x => x.id === m.id) === i).slice(0, 25);
   const attr = s => String(s).replace(/"/g, "'");
   const context = pool.map(m =>
-    `<story id="${m.id}" title="${attr(m.title)}"${m.memory_date ? ` when="${attr(m.memory_date)}"` : ''}${m.asked ? ` asked="${attr(m.asked)}"` : ''}>\n${String(m.content).slice(0, 3000)}\n</story>`
+    `<story id="${m.id}"${everyone ? ` told_by="${attr(m.person_name)}"` : ''} title="${attr(m.title)}"${m.memory_date ? ` when="${attr(m.memory_date)}"` : ''}${m.asked ? ` asked="${attr(m.asked)}"` : ''}>\n${String(m.content).slice(0, 3000)}\n</story>`
   ).join('\n');
-  const system = `You help a family find what ${personName} actually said in their own recorded stories.
+  const who = everyone ? 'the family members (each story says who told it)' : personName;
+  const system = `You help a family find what ${who} actually said in their own recorded stories.
 Rules:
 - Use ONLY the stories below. Never add facts, guesses or advice of your own.
-- Write about ${personName} in the third person ("${personName} said..."). Never pretend to be ${personName}.
+${everyone
+  ? `- Always say who said what, by name ("Nani said..., Mama said..."). If different people remember the same thing differently, give BOTH versions with a quote from each. Never pick one or blend them.`
+  : `- Write about ${personName} in the third person ("${personName} said..."). Never pretend to be ${personName}.`}
 - Write the answer in the same language and script as the question.
-- Back the answer with 1 to 3 quotes copied EXACTLY, character for character, from the stories, in the story's own language and script. Each quote 4 to 40 words.
+- Back the answer with 1 to 4 quotes copied EXACTLY, character for character, from the stories, in the story's own language and script. Each quote 4 to 40 words.
 - If the stories don't answer the question, set "found" to false and give no quotes.
 Reply with ONLY this JSON:
 {"found": true, "answer": "at most 3 short sentences", "citations": [{"id": "story id", "quote": "exact words from that story"}]}
@@ -266,7 +269,7 @@ ${context}`;
       })
       .filter(Boolean)
       .filter((c, i, a) => a.findIndex(x => x.id === c.id && x.quote === c.quote) === i)
-      .slice(0, 3);
+      .slice(0, 4);
     if (parsed.found && citations.length && parsed.answer) {
       return { answer: String(parsed.answer).trim(), citations, grounded: true, engine: out.engine };
     }
@@ -279,6 +282,24 @@ ${context}`;
     citations: ranked.slice(0, 2).map(m => ({ id: m.id, quote: excerpt(m, question) })).filter(c => c.quote),
     grounded: true, engine: 'heuristic'
   };
+}
+
+/**
+ * The interviewer's next turn: one natural follow-up on what they just said, in their language.
+ * Asked on the elder's screen right after they answer, so it has to be fast (no thinking).
+ */
+async function followUp(answer, question, personName = 'them', family = null) {
+  const text = String(answer || '').slice(0, 3000);
+  if (text.split(/\s+/).length < 6) return null;
+  const prompt = `${personName} was asked: "${question || ''}"
+They answered:
+"""${text}"""
+
+Ask ONE short, warm follow-up question that a loving grandchild would ask next, about a specific person, place, feeling or detail they just mentioned. Ask it directly to ${personName} ("you"). Use the same language and script they answered in; if they spoke Hindi, write simple Hindi in Devanagari. Never ask about something they already explained.
+Reply with ONLY JSON: {"q": "the question"}`;
+  const out = await generate(prompt, null, family, { json: true });
+  const q = String(parseJSON(out?.text)?.q || '').trim().slice(0, 200);
+  return q || null;
 }
 
 // ── What to ask next: follow-ups on what they said, and the gaps nobody has asked about ──
@@ -370,4 +391,4 @@ function excerpt(memory, question, max = 220) {
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
-module.exports = { settleDate, extractMemory, answerQuestion, nextQuestions, verifyQuote, generateLifeSummary, checkHealth, rankMemories, excerpt };
+module.exports = { settleDate, extractMemory, answerQuestion, nextQuestions, followUp, verifyQuote, generateLifeSummary, checkHealth, rankMemories, excerpt };
