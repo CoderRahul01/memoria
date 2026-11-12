@@ -153,7 +153,7 @@ function route() {
   state.view = view;
   show(view);
   route.booted = true;
-  if (view === 'story') loadStory();
+  if (view === 'story') { loadStory(); renderSent(); }
   if (view === 'ask') renderSuggestions();
   if (view === 'home') renderMemories();
   if (view === 'record') renderPicked();
@@ -281,7 +281,7 @@ async function setPerson(p, reload = true) {
   renderPrompts();
   renderVoiceStatus();
   if (reload) await loadMemories();
-  if (!$('#view-story').hidden) loadStory();
+  if (!$('#view-story').hidden) { loadStory(); renderSent(); }
   heartbeat();
 }
 
@@ -982,6 +982,23 @@ async function loadStory(force = false) {
   t.classList.remove('loading');
 }
 $('#refreshStory').addEventListener('click', () => loadStory(true));
+
+// Questions sent to their phone: what's been answered, what's still waiting.
+async function renderSent() {
+  if (!state.person) return;
+  $('#sentBox').hidden = isSelf();
+  if (isSelf()) return;
+  const all = await api('/api/invites').catch(() => []);
+  const all_ = all.filter(i => i.person_name === state.person.name);
+  const mine = all_.slice(0, 3);
+  const when = d => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  $('#sentList').innerHTML = mine.length ? mine.map(i => `
+    <li class="${i.answers ? 'done' : ''}">
+      <span class="q">${esc(i.question)}</span>
+      <small>${i.answers ? `Answered ${when(i.answered_at)}${i.answers > 1 ? ` · ${i.answers} answers` : ''}` : `Waiting since ${when(i.created_at)}`}</small>
+    </li>`).join('') + (all_.length > 3 ? `<li class="more">and ${all_.length - 3} more · ${all_.filter(i => i.answers).length} of ${all_.length} answered</li>` : '')
+    : `<li class="empty">Nothing sent yet. ${esc(state.person.name)} doesn’t need the app: send one question, they answer with one tap, and it lands in the album.</li>`;
+}
 
 async function renderVoiceStatus() {
   const el = $('#voiceStatus');
