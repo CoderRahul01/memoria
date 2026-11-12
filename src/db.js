@@ -122,6 +122,7 @@ async function initDB() {
       answered_at TIMESTAMPTZ
     );
     CREATE INDEX IF NOT EXISTS invites_family ON invites (family_id, created_at DESC);
+    ALTER TABLE invites ADD COLUMN IF NOT EXISTS follow_up TEXT;
     -- Generated voices were retired: Listen only ever plays the real recording.
     DELETE FROM credits WHERE provider IN ('elevenlabs_tts', 'elevenlabs_voices');
   `);
@@ -189,6 +190,8 @@ const getAllMemories = (familyId, personName) =>
 const voiceMinutes = (familyId, personName) => one(
   `SELECT COALESCE(SUM(r.duration_s), 0) / 60.0 AS minutes, COUNT(*)::int AS n FROM recordings r JOIN memories m ON m.id = r.memory_id
    WHERE r.family_id = $1 AND m.person_name = $2`, [familyId, personName]);
+const getFamilyMemories = familyId =>
+  q('SELECT m.*, EXISTS (SELECT 1 FROM recordings r WHERE r.memory_id = m.id) AS has_voice FROM memories m WHERE m.family_id = $1 ORDER BY m.created_at DESC LIMIT 80', [familyId]);
 const countMemories = familyId => one('SELECT COUNT(*)::int AS n FROM memories WHERE family_id = $1', [familyId]).then(r => r.n);
 
 function searchMemories(familyId, query, personName) {
@@ -216,7 +219,7 @@ const inviteByToken = token => /^[\w-]{12,40}$/.test(String(token || ''))
   ? one(`SELECT i.*, f.owner_name, f.plan FROM invites i JOIN families f ON f.id = i.family_id
          WHERE i.token_hash = $1 AND i.expires_at > now()`, [hashKey('invite:' + token)])
   : Promise.resolve(null);
-const markInviteAnswered = id => q('UPDATE invites SET answers = answers + 1, answered_at = now() WHERE id = $1', [id]);
+const markInviteAnswered = (id, followUp = null) => q('UPDATE invites SET answers = answers + 1, answered_at = now(), follow_up = $2 WHERE id = $1', [id, followUp]);
 const recentInvites = familyId => q(
   `SELECT person_name, question, answers, created_at, answered_at FROM invites WHERE family_id = $1 ORDER BY created_at DESC LIMIT 20`, [familyId]);
 
@@ -236,7 +239,7 @@ module.exports = {
   pool, q, one, initDB,
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime, revokeLifetime,
   getAllPersons, getPerson, savePerson, updatePersonVoiceId,
-  saveMemory, updateMemory, getMemory, getAllMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
+  saveMemory, updateMemory, getMemory, getAllMemories, getFamilyMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
   createInvite, inviteByToken, markInviteAnswered, recentInvites,
   heartbeat, logEvent, setCredit
 };

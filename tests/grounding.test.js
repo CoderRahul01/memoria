@@ -90,3 +90,19 @@ describe('listen links (printed in the keepsake book)', () => {
     assert.ok(!recordings.signedUrl(id).includes(recordings.listenToken(id).split('.')[1]));
   });
 });
+
+describe('interviewer follow-up and family-wide answers without a model', () => {
+  it('asks no follow-up when there is no model or too little to go on', async () => {
+    assert.equal(await gemma.followUp('हाँ', 'Q', 'Nani'), null);
+    assert.equal(await gemma.followUp('My father worked in the railway and took us to the river every Sunday.', 'Q', 'Nani'), null);
+  });
+  it('family-wide Ask still only quotes recorded words', async () => {
+    const memories = [
+      { id: 'n', person_name: 'Nani', title: 'Kanpur', content: 'We lived in Kanpur in 1968, near the station.', category: 'place' },
+      { id: 'm', person_name: 'Mama', title: 'Moving', content: 'We moved to Kanpur in 1970, I was six.', category: 'place' }
+    ];
+    const r = await gemma.answerQuestion('When did we live in Kanpur?', memories, 'The family', null, { everyone: true });
+    assert.equal(r.grounded, true);
+    for (const c of r.citations) assert.ok(memories.find(m => m.id === c.id).content.includes(c.quote.replace(/…$/, '').slice(0, 15)));
+  });
+});

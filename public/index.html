@@ -275,6 +275,10 @@
         <h2 class="heading">What would you like to know about <span class="pname">them</span>?</h2>
         <p class="muted">Answers only come from stories <span class="pname">they</span> recorded. Under each answer you’ll see their exact words, and you can hear them say it. If they never talked about it, Memoria will say so.</p>
 
+        <div class="scope" id="askScope" role="radiogroup" aria-label="Whose stories to ask" hidden>
+          <button role="radio" aria-checked="true" data-scope="one">Just <span class="pname">them</span></button>
+          <button role="radio" aria-checked="false" data-scope="all">The whole family</button>
+        </div>
         <div class="chat" id="chat" aria-live="polite"></div>
         <div class="suggestions" id="suggestions"></div>
 
@@ -349,8 +353,13 @@
         <div class="solo-done" id="eDone" hidden>
           <h2 class="heading-sm">Thank you. It’s saved. <span lang="hi">धन्यवाद, सहेज लिया।</span></h2>
           <p id="eDoneText">Your answer is in the family album, in your own voice.</p>
+          <div class="follow" id="eFollow" hidden>
+            <p class="eyebrow">One more, if you like · <span lang="hi">एक और सवाल</span></p>
+            <p class="follow-q" id="eFollowQ"></p>
+            <button class="pill pill-accent" id="eFollowBtn" type="button">Answer this · <span lang="hi">जवाब दीजिए</span></button>
+          </div>
           <div class="row-actions">
-            <a class="pill pill-accent" id="eTell" target="_blank" rel="noopener">Tell them on WhatsApp</a>
+            <a class="pill pill-line" id="eTell" target="_blank" rel="noopener">Tell them on WhatsApp</a>
             <button class="pill pill-line" id="eMore" type="button">Add more · <span lang="hi">और बताइए</span></button>
           </div>
         </div>

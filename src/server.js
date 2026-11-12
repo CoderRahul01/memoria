@@ -396,13 +396,18 @@ app.post('/api/invite/:token/record', upload.single('audio'), wrap(async (req, r
   try {
     const inv = await db.inviteByToken(req.params.token);
     if (!inv) throw httpError(404, 'This question link has expired. Ask your family to send a new one.');
-    if (inv.answers >= 5) throw httpError(429, 'This question already has 5 answers. Ask your family to send a new one.');
+    if (inv.answers >= 8) throw httpError(429, 'Thank you for all these answers! Ask your family to send a new question.');
     const family = await db.familyById(inv.family_id);
+    // Answering the interviewer's follow-up? It must be the one we issued, so the link can't file arbitrary questions.
+    const asked = req.body.follow === '1' && inv.follow_up ? inv.follow_up : inv.question;
     const out = await keepRecording(family, req.file, req.body, {
-      person_name: inv.person_name, asked: inv.question, via: 'elder_link', fromElder: true
+      person_name: inv.person_name, asked, via: 'elder_link', fromElder: true
     });
-    await db.markInviteAnswered(inv.id);
-    res.json({ success: true, title: out.memory.title, person_name: inv.person_name, from: inv.owner_name || null });
+    const next = out.voice_kept && !/haven’t been written out yet/.test(out.memory.content)
+      ? await gemma.followUp(out.memory.content, asked, inv.person_name, family).catch(() => null) : null;
+    await db.markInviteAnswered(inv.id, next);
+    db.logEvent(inv.family_id, 'elder_answered', { follow: asked !== inv.question, next: !!next });
+    res.json({ success: true, title: out.memory.title, person_name: inv.person_name, from: inv.owner_name || null, follow_up: next });
   } finally {
     cleanup(req.file);
   }
@@ -428,26 +433,27 @@ app.get('/api/memories/:id/listen-link', wrap(async (req, res) => {
 // ── ASK ────────────────────────────────────────────────────────
 app.post('/api/chat', wrap(async (req, res) => {
   const { question, person_name } = req.body;
+  const everyone = req.body.everyone === true;
   if (!question?.trim()) throw httpError(400, 'Ask a question first.');
-  if (!person_name) throw httpError(400, 'Choose whose stories to ask about.');
+  if (!person_name && !everyone) throw httpError(400, 'Choose whose stories to ask about.');
   aiBudget(req.family);
 
   const q = question.trim().slice(0, 400);
-  const memories = await db.getAllMemories(req.family.id, person_name);
+  const memories = everyone ? await db.getFamilyMemories(req.family.id) : await db.getAllMemories(req.family.id, person_name);
   const t0 = Date.now();
   // The model may only answer with quotes we can find in their real words (checked in gemma.answerQuestion).
-  const r = await gemma.answerQuestion(q, memories, person_name, req.family);
+  const r = await gemma.answerQuestion(q, memories, everyone ? 'The family' : person_name, req.family, { everyone });
   const spoken = new Map((await recordings.getWords([...new Set(r.citations.map(c => c.id))])).map(x => [x.memory_id, x]));
   const sources = r.citations.map(c => {
     const m = memories.find(x => x.id === c.id);
     const rec = spoken.get(c.id);
     const clip = rec ? recordings.clipFor(rec.words, c.quote) : null;
     return {
-      id: m.id, title: m.title, memory_date: m.memory_date, quote: c.quote,
+      id: m.id, title: m.title, memory_date: m.memory_date, quote: c.quote, person_name: m.person_name,
       voice: rec ? { url: recordings.signedUrl(m.id), start: clip?.start ?? 0, end: clip?.end ?? null } : null
     };
   });
-  db.logEvent(req.family.id, 'question_asked', { engine: r.engine, sources: sources.length, grounded: r.grounded }, Date.now() - t0);
+  db.logEvent(req.family.id, 'question_asked', { engine: r.engine, sources: sources.length, grounded: r.grounded, everyone }, Date.now() - t0);
   res.json({ answer: r.answer, sources: r.grounded ? sources : [], grounded: r.grounded });
 }));
 
