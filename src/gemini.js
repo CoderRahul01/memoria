@@ -15,9 +15,10 @@ const enabled = () => !!GEMINI_KEY;
  * Generate text using Google Gemini
  * @param {string} prompt
  * @param {string|null} system
+ * @param {{ thinking?: number, json?: boolean }} [opts] thinking budget in tokens (2.5 models, default 0); json forces a JSON reply
  * @returns {Promise<{ text: string, engine: string } | null>}
  */
-async function generate(prompt, system = null) {
+async function generate(prompt, system = null, { thinking = null, json = false } = {}) {
   if (!enabled()) return null;
 
   const url = `${BASE_URL}/${MODEL}:generateContent?key=${GEMINI_KEY}`;
@@ -30,7 +31,11 @@ async function generate(prompt, system = null) {
     ],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 2048
+      maxOutputTokens: 4096,
+      ...(json ? { responseMimeType: 'application/json' } : {}),
+      // Short, checkable tasks (filing, quoting, suggesting questions): thinking adds seconds, not accuracy.
+      // Every quote is verified against the transcript afterwards anyway. GEMINI_THINKING_BUDGET overrides.
+      ...(/2\.5/.test(MODEL) ? { thinkingConfig: { thinkingBudget: thinking ?? Number(process.env.GEMINI_THINKING_BUDGET ?? 0) } } : {})
     }
   };
 

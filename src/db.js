@@ -105,6 +105,23 @@ async function initDB() {
       budget NUMERIC,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    -- Where a story came from: the question that prompted it, and how it arrived.
+    ALTER TABLE memories ADD COLUMN IF NOT EXISTS asked TEXT;
+    ALTER TABLE memories ADD COLUMN IF NOT EXISTS via TEXT;
+    -- Question links: a keeper sends one question; the elder answers from their own phone.
+    -- The token only lets someone record for that one person. It can't read the album.
+    CREATE TABLE IF NOT EXISTS invites (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      token_hash TEXT UNIQUE NOT NULL,
+      family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+      person_name TEXT NOT NULL,
+      question TEXT NOT NULL,
+      answers INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + interval '30 days',
+      answered_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS invites_family ON invites (family_id, created_at DESC);
     -- Generated voices were retired: Listen only ever plays the real recording.
     DELETE FROM credits WHERE provider IN ('elevenlabs_tts', 'elevenlabs_voices');
   `);
@@ -161,10 +178,10 @@ const updatePersonVoiceId = (familyId, name, id, cloned = false) => q('UPDATE pe
 
 // ── Memories ───────────────────────────────────
 const saveMemory = (familyId, d) => one(
-  `INSERT INTO memories (family_id, person_name, title, content, tags, people, category, memory_date, source)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+  `INSERT INTO memories (family_id, person_name, title, content, tags, people, category, memory_date, source, asked, via)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
   [familyId, d.person_name, d.title, d.content, JSON.stringify(d.tags || []), JSON.stringify(d.people || []),
-   d.category || 'story', d.memory_date || null, d.source || 'typed']);
+   d.category || 'story', d.memory_date || null, d.source || 'typed', d.asked || null, d.via || null]);
 
 const getMemory = (familyId, id) => one('SELECT m.*, EXISTS (SELECT 1 FROM recordings r WHERE r.memory_id = m.id) AS has_voice, (SELECT r.duration_s FROM recordings r WHERE r.memory_id = m.id) AS voice_seconds FROM memories m WHERE m.family_id = $1 AND m.id = $2', [familyId, id]).catch(() => null);
 const getAllMemories = (familyId, personName) =>
@@ -187,6 +204,22 @@ const updateMemory = (familyId, id, { title, content, memory_date }) => one(
 const deleteMemory = (familyId, id) => q('DELETE FROM memories WHERE family_id = $1 AND id = $2', [familyId, id]);
 const updateMemoryTTS = (id, url) => q('UPDATE memories SET tts_url = $2 WHERE id = $1', [id, url]);
 
+// ── Question links ─────────────────────────────
+async function createInvite(familyId, personName, question) {
+  const token = crypto.randomBytes(12).toString('base64url');
+  const invite = await one(
+    `INSERT INTO invites (token_hash, family_id, person_name, question) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [hashKey('invite:' + token), familyId, personName, question]);
+  return { token, invite };
+}
+const inviteByToken = token => /^[\w-]{12,40}$/.test(String(token || ''))
+  ? one(`SELECT i.*, f.owner_name, f.plan FROM invites i JOIN families f ON f.id = i.family_id
+         WHERE i.token_hash = $1 AND i.expires_at > now()`, [hashKey('invite:' + token)])
+  : Promise.resolve(null);
+const markInviteAnswered = id => q('UPDATE invites SET answers = answers + 1, answered_at = now() WHERE id = $1', [id]);
+const recentInvites = familyId => q(
+  `SELECT person_name, question, answers, created_at, answered_at FROM invites WHERE family_id = $1 ORDER BY created_at DESC LIMIT 20`, [familyId]);
+
 // ── Presence (who is using Memoria right now) ──
 const heartbeat = (familyId, view, person) => q(
   `INSERT INTO presence (family_id, view, person, seen_at) VALUES ($1,$2,$3,now())
@@ -204,5 +237,6 @@ module.exports = {
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime, revokeLifetime,
   getAllPersons, getPerson, savePerson, updatePersonVoiceId,
   saveMemory, updateMemory, getMemory, getAllMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
+  createInvite, inviteByToken, markInviteAnswered, recentInvites,
   heartbeat, logEvent, setCredit
 };

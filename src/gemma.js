@@ -38,10 +38,10 @@ async function viaTinker(prompt, system) {
 }
 
 /** Returns { text, engine } or null when no model is reachable. */
-async function generate(prompt, system, family = null) {
+async function generate(prompt, system, family = null, opts = {}) {
   if (gemini.enabled()) {
     try {
-      const out = await gemini.generate(prompt, system);
+      const out = await gemini.generate(prompt, system, opts);
       if (out) return out;
     } catch (e) {
       console.warn('Gemini failed:', e.message);
@@ -191,37 +191,139 @@ function settleDate(text, proposed) {
   return propYear && said.some(y => y.year === propYear) && !HEDGE.test(prop) ? prop : first.year;
 }
 
+// ── Quotes are checked against the real words, never trusted ────
+const qnorm = s => String(s || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
+const qtokens = s => qnorm(s).split(' ').filter(Boolean);
+const sentencesOf = text => String(text || '').split(/(?<=[.!?।|])\s+/).map(s => s.trim()).filter(Boolean);
+
+/**
+ * Returns the quote as it really appears in the story, or null if the story never said it.
+ * An exact match wins; otherwise the one sentence that carries most of the quote's words (a model
+ * may fix punctuation or drop a filler word), and only if it's clearly the same sentence.
+ */
+function verifyQuote(content, quote) {
+  const q = qnorm(String(quote || '').replace(/…$/, ''));
+  if (!q || q.split(' ').length < 2) return null;
+  if (qnorm(content).includes(q)) {
+    const hit = sentencesOf(content).find(s => qnorm(s).includes(q));
+    return hit && hit.length <= 320 ? hit : String(quote).trim();
+  }
+  const want = qtokens(quote);
+  let best = null, bestScore = 0;
+  for (const s of sentencesOf(content)) {
+    const have = new Set(qtokens(s));
+    const score = want.filter(w => have.has(w)).length / want.length;
+    if (score > bestScore) { bestScore = score; best = s; }
+  }
+  return bestScore >= 0.75 && best ? best.slice(0, 320) : null;
+}
+
+function parseJSON(text) {
+  const match = String(text || '').match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]); } catch { return null; }
+}
+
+/**
+ * Grounded answers. The model reads the stories in whatever language they were told and must hand back
+ * verbatim quotes with story ids. Every quote is checked against the transcript; anything it can't back
+ * with the person's real words is dropped, and with nothing left we say it hasn't been recorded yet.
+ * Answers are about the person, never in their voice.
+ */
 async function answerQuestion(question, memories, personName = 'them', family = null) {
-  const relevant = rankMemories(question, memories);
-  const sources = relevant.map(m => ({ id: m.id, title: m.title }));
-
+  const notYet = /[\u0900-\u097F]/.test(question)
+    ? `${personName} ने इसके बारे में अभी तक कुछ रिकॉर्ड नहीं किया है। अगली बार यही सवाल पूछिए।`
+    : `${personName} hasn't talked about that yet. It could be a good question for the next recording.`;
   if (!memories.length) {
-    return { answer: `There are no memories saved for ${personName} yet. Record one first, then ask again.`, sources: [], engine: 'none' };
+    return { answer: `There are no stories saved for ${personName} yet. Record one first, then ask again.`, citations: [], grounded: false, engine: 'none' };
   }
-
-  const context = (relevant.length ? relevant : memories.slice(0, 6))
-    .map((m, i) => `[${i + 1}] ${m.title}${m.memory_date ? ` (${m.memory_date})` : ''}: ${m.content}`).join('\n\n');
-
-  const system = `You answer family questions about ${personName}, using ONLY their recorded memories below.
-Speak warmly, in the first person as ${personName}, as if they were telling it. Keep it under 4 sentences.
-Use their exact details (quantities, names, places). If the memories don't contain the answer, say honestly
-that ${personName} hasn't recorded that yet and suggest asking them about it.
-
-MEMORIES:
+  const ranked = rankMemories(question, memories, 8);
+  const pool = [...ranked, ...memories].filter((m, i, a) => a.findIndex(x => x.id === m.id) === i).slice(0, 25);
+  const attr = s => String(s).replace(/"/g, "'");
+  const context = pool.map(m =>
+    `<story id="${m.id}" title="${attr(m.title)}"${m.memory_date ? ` when="${attr(m.memory_date)}"` : ''}${m.asked ? ` asked="${attr(m.asked)}"` : ''}>\n${String(m.content).slice(0, 3000)}\n</story>`
+  ).join('\n');
+  const system = `You help a family find what ${personName} actually said in their own recorded stories.
+Rules:
+- Use ONLY the stories below. Never add facts, guesses or advice of your own.
+- Write about ${personName} in the third person ("${personName} said..."). Never pretend to be ${personName}.
+- Write the answer in the same language and script as the question.
+- Back the answer with 1 to 3 quotes copied EXACTLY, character for character, from the stories, in the story's own language and script. Each quote 4 to 40 words.
+- If the stories don't answer the question, set "found" to false and give no quotes.
+Reply with ONLY this JSON:
+{"found": true, "answer": "at most 3 short sentences", "citations": [{"id": "story id", "quote": "exact words from that story"}]}
+STORIES:
 ${context}`;
-
-  const out = await generate(`Question: ${question}`, system, family);
-  if (out?.text) return { answer: out.text, sources, engine: out.engine };
-
-  // No model: answer by quoting the most relevant memory verbatim — still truthful and useful.
-  if (!relevant.length) {
-    return { answer: `${personName} hasn't recorded anything about that yet. It might be a good question to ask them next time.`, sources: [], engine: 'heuristic' };
+  // Matching a Hinglish question to a Devanagari story needs a little reasoning; filing and suggesting don't.
+  const out = await generate(`Question: ${question}`, system, family, { thinking: 1024, json: true });
+  const parsed = out?.text ? parseJSON(out.text) : null;
+  if (parsed) {
+    const citations = (Array.isArray(parsed.citations) ? parsed.citations : [])
+      .map(c => {
+        const m = pool.find(x => x.id === c?.id);
+        const quote = m && verifyQuote(m.content, c.quote);
+        return quote ? { id: m.id, quote } : null;
+      })
+      .filter(Boolean)
+      .filter((c, i, a) => a.findIndex(x => x.id === c.id && x.quote === c.quote) === i)
+      .slice(0, 3);
+    if (parsed.found && citations.length && parsed.answer) {
+      return { answer: String(parsed.answer).trim(), citations, grounded: true, engine: out.engine };
+    }
+    return { answer: notYet, citations: [], grounded: false, engine: out.engine };
   }
-  const top = relevant[0];
+  // No model (or an unreadable reply): quote the best-matching story word for word. Still only their words.
+  if (!ranked.length) return { answer: notYet, citations: [], grounded: false, engine: 'heuristic' };
   return {
-    answer: `Here's what ${personName} said in "${top.title}": “${top.content.length > 600 ? top.content.slice(0, 597) + '…' : top.content}”`,
-    sources, engine: 'heuristic'
+    answer: `Here's what ${personName} said in "${ranked[0].title}".`,
+    citations: ranked.slice(0, 2).map(m => ({ id: m.id, quote: excerpt(m, question) })).filter(c => c.quote),
+    grounded: true, engine: 'heuristic'
   };
+}
+
+// ── What to ask next: follow-ups on what they said, and the gaps nobody has asked about ──
+const TOPICS = {
+  recipe: 'What is a dish only you know how to make? Walk me through it.',
+  family: 'Tell me about your parents. What were they like?',
+  place: 'What was the house you grew up in like?',
+  career: 'What was your first job, and what did it pay?',
+  advice: 'What do you want your grandchildren to always remember?',
+  event: 'Which festival from your childhood do you remember most?',
+  knowhow: 'What is something in this family that only you know how to do?',
+  story: 'What is the funniest thing that ever happened to you?'
+};
+
+function heuristicNext(memories, n) {
+  const asked = new Set(memories.map(m => qnorm(m.asked)));
+  const qs = [];
+  const people = [...new Set(memories.flatMap(m => m.people || []))];
+  for (const p of people.slice(0, 2)) qs.push({ q: `Tell me more about ${p}. How did you know them?`, why: 'follow-up' });
+  const covered = new Set(memories.map(m => m.category));
+  for (const [cat, q] of Object.entries(TOPICS)) if (!covered.has(cat)) qs.push({ q, why: 'gap' });
+  return qs.filter(x => !asked.has(qnorm(x.q))).slice(0, n);
+}
+
+async function nextQuestions(memories, personName = 'them', family = null, n = 3) {
+  if (!memories.length) return { questions: heuristicNext([], n), engine: 'heuristic' };
+  const list = memories.slice(0, 30).map(m =>
+    `- "${m.title}"${m.memory_date ? ` (${m.memory_date})` : ''} [${m.category}]${(m.people || []).length ? ` people: ${m.people.join(', ')}` : ''}${m.asked ? ` | asked: ${m.asked}` : ''}\n  ${String(m.content).slice(0, 280).replace(/\s+/g, ' ')}`
+  ).join('\n');
+  const prompt = `These are the stories ${personName} has recorded so far:
+${list}
+
+Suggest ${n} questions a grandchild could ask ${personName} next. Mix:
+- follow-ups on a specific person, place or moment they already mentioned (use the real name)
+- gaps: a part of their life, a decade or a topic nobody has asked about yet (childhood, parents, work, food, festivals, hard times, family know-how)
+Each question: one short, warm, simple sentence, asked directly to ${personName} ("you"). Write it in the language most of the stories are told in; if they are in Hindi, write simple Hindi in Devanagari.
+Never repeat a question that was already asked.
+Reply with ONLY JSON: {"questions": [{"q": "question", "why": "follow-up" or "gap"}]}`;
+  const out = await generate(prompt, null, family, { json: true });
+  const parsed = out?.text ? parseJSON(out.text) : null;
+  const qs = (parsed?.questions || [])
+    .map(x => ({ q: String(x?.q || '').trim().slice(0, 200), why: x?.why === 'gap' ? 'gap' : 'follow-up' }))
+    .filter(x => x.q);
+  if (qs.length) return { questions: qs.slice(0, n), engine: out.engine };
+  return { questions: heuristicNext(memories, n), engine: 'heuristic' };
 }
 
 async function generateLifeSummary(memories, personName = 'them', family = null) {
@@ -268,4 +370,4 @@ function excerpt(memory, question, max = 220) {
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
-module.exports = { settleDate, extractMemory, answerQuestion, generateLifeSummary, checkHealth, rankMemories, excerpt };
+module.exports = { settleDate, extractMemory, answerQuestion, nextQuestions, verifyQuote, generateLifeSummary, checkHealth, rankMemories, excerpt };
