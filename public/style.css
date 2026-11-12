@@ -194,10 +194,13 @@ body:not(.mode-landing) .landing-only { display: none !important; }
 .t-dot .yr { top: 22px; font-weight: 600; color: var(--ink); }
 .t-dot .tt { bottom: 24px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .2s; }
 .t-dot:hover .tt, .t-dot:focus-visible .tt, .labeled .tt { opacity: 1; }
-.labeled .t-dot:first-child .tt { left: 0; transform: none; }
-.labeled .t-dot:last-child .tt { left: auto; right: -8px; transform: none; }
-.labeled .t-dot:first-child .yr { left: 0; transform: none; } .labeled .t-dot:last-child .yr { left: auto; right: -2px; transform: none; }
-.t-dot.up .yr { top: auto; bottom: 22px; }
+.t-dot.edge-l .tt, .t-dot.edge-l .yr { left: -4px; transform: none; }
+.t-dot.edge-r .tt, .t-dot.edge-r .yr { left: auto; right: -4px; transform: none; }
+/* Phones: years only (tap a dot to open the story); titles don't fit side by side. */
+@media (max-width: 600px) {
+  .thread-track .t-dot .tt { display: none; }
+  .thread-track { height: 70px; }
+}
 @keyframes pop { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: none; } }
 
 .toolbar { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 22px; }
@@ -413,6 +416,15 @@ body:not(.mode-landing) .landing-only { display: none !important; }
 .send-form .row-actions { justify-content: flex-end; }
 #sendChoices { margin: 16px 0 14px; }
 .m-asked { font-size: 15px; color: var(--ink-3); font-style: italic; margin: -4px 0 14px; }
+
+/* ── Ask scope, new answers, interviewer follow-up ── */
+.scope { display: inline-flex; gap: 4px; padding: 4px; margin: 6px 0 18px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--card); }
+.scope button { border: 0; background: none; padding: 8px 14px; border-radius: var(--r-chip); font: 500 15px/1 var(--sans); color: var(--ink-2); cursor: pointer; }
+.scope button[aria-checked='true'] { background: var(--ink); color: var(--paper); }
+.nudge.fresh { border-left-color: var(--ok); background: #EEF5EF; }
+.follow { width: 100%; margin: 14px 0 4px; padding: 18px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--card); display: grid; gap: 10px; justify-items: center; }
+.follow .eyebrow { margin: 0; }
+.follow-q { font: 400 24px/1.3 var(--serif); margin: 0; text-wrap: balance; }
 
 /* ── Solo pages: one question for an elder, or one story to hear ── */
 .solo-wrap { width: min(560px, 100% - 32px); margin: 0 auto; min-height: calc(100svh - 80px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 18px; padding: 32px 0 48px; }

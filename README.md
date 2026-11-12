@@ -24,6 +24,9 @@ Press record and let them talk. Memoria transcribes word-for-word, preserves the
 ## Key Features
 
 - **Question links for elders:** Send one question on WhatsApp. They open it on their own phone, hear it read out, tap once and answer. No app, no sign-up. The link can only record answers for that one person, it can't open the album, and an elder's answer is never turned away for a plan limit.
+- **A follow-up, like a real interviewer:** Right after an elder answers, Memoria reads what they said and asks one natural follow-up on the same screen, in their language. Their next answer is filed under that question.
+- **Ask the whole family, two versions kept:** Ask across everyone's stories. When Mama says 1970 and Nani says 1968, you get both, each with their own quote and voice. Memoria never blends family memory into one "AI truth".
+- **Family know-how:** Remedies, rituals and how the house runs get their own category and prompts, so it's useful every day, not just for nostalgia.
 - **Next questions:** After every story, Memoria suggests follow-ups on the people and places already mentioned, plus the parts of their life nobody has asked about yet, in the language the stories are told in.
 - **Verified quotes in any language:** Ask in English, Hinglish or Hindi. Gemini must answer with exact quotes, and the server checks every quote against the real transcript before showing it. If nothing they said backs the answer, Memoria says it hasn't been recorded yet. Answers are about the person, never in their voice.
 - **Cassette Audio Recorder:** Captures genuine speech with live audio level analysis and winding reels.
