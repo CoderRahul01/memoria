@@ -106,3 +106,29 @@ describe('interviewer follow-up and family-wide answers without a model', () => 
     for (const c of r.citations) assert.ok(memories.find(m => m.id === c.id).content.includes(c.quote.replace(/…$/, '').slice(0, 15)));
   });
 });
+
+describe('scale and cost guards', () => {
+  const quota = require('../src/quota');
+  const stt = require('../src/stt');
+  it('keeps just the quoted words when the transcript is one long run-on sentence', () => {
+    const runOn = 'मेरी माँ सुबह 4 बजे उठती थी दाल बनाते समय पहले जीरा डालो फिर हींग और प्याज़ को कभी जल्दी मत करो यह 1968 की है जब हम कानपुर में रहते थे';
+    assert.equal(gemma.verifyQuote(runOn, 'फिर हींग और प्याज़ को कभी जल्दी मत करो'), 'फिर हींग और प्याज़ को कभी जल्दी मत करो');
+  });
+  it('estimates word timings across the recording, marked approximate', () => {
+    const w = stt.approxWords('one two three four', 8);
+    assert.equal(w.length, 4);
+    assert.equal(w[0].start, 0);
+    assert.ok(Math.abs(w[3].end - 8) < 0.02);
+    assert.ok(w.every(x => x.approx));
+  });
+  it('caps a family at its daily Ask allowance', () => {
+    const fam = { id: 'quota-test-' + Date.now(), plan: 'free' };
+    for (let i = 0; i < 20; i++) assert.equal(quota.allowAsk(fam, 20), true);
+    assert.equal(quota.allowAsk(fam, 20), false);
+  });
+  it('never caps Lifetime model access', () => {
+    for (let i = 0; i < 5000; i++) quota.allowModel({ plan: 'free' });
+    assert.equal(quota.allowModel({ plan: 'free' }), false, 'free families stop at the daily cap');
+    assert.equal(quota.allowModel({ plan: 'lifetime' }), true);
+  });
+});

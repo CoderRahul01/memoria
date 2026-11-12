@@ -241,7 +241,7 @@ function renderPlan() {
   $('#ownerInput').value = f.owner_name || '';
   $('#planRow').innerHTML = life
     ? `<span><span class="plan-badge life">Lifetime</span></span><span>Everything unlocked. Thank you.</span>`
-    : `<span><span class="plan-badge">Free</span> ${f.memory_count} of ${f.limits.memories} stories</span>
+    : `<span><span class="plan-badge">Free</span> ${f.memory_count} of ${f.limits.memories} stories · ${Math.round(f.voice_minutes || 0)} of ${f.limits.voice_minutes} min of voice</span>
        <button class="pill pill-accent" data-upgrade>Lifetime · ${esc(f.price)}</button>`;
   renderVoiceStatus();
 }
@@ -251,7 +251,7 @@ function heartbeat() {
   if (!state.key || document.hidden) return;
   api('/api/presence', { method: 'POST', body: { view: state.view, person: state.person?.name } }).catch(() => {});
 }
-setInterval(heartbeat, 30_000);
+setInterval(heartbeat, 120_000); // every 2 minutes is plenty for "who's here", and lets the database sleep
 document.addEventListener('visibilitychange', heartbeat);
 
 // ── Persons ────────────────────────────────────────────────────
@@ -972,7 +972,7 @@ async function loadStory(force = false) {
   t.classList.add('loading');
   t.textContent = 'Reading through their stories…';
   try {
-    const r = await api(`/api/summary/${encodeURIComponent(state.person.name)}`);
+    const r = await api(`/api/summary/${encodeURIComponent(state.person.name)}${force ? '?fresh=1' : ''}`);
     t.textContent = r.summary;
     t.dataset.for = state.person.name;
     t.dataset.count = r.memory_count;
@@ -1344,7 +1344,9 @@ async function waitForLifetime() {
   const fail = () => { section.hidden = true; $('#demoLink')?.setAttribute('href', '#how'); };
   if (v.error) fail();
   v.addEventListener('error', fail);
-  if ('IntersectionObserver' in window) {
+  // Phones and data-saver connections tap to play: a 5 MB video per visitor adds up fast on mobile data.
+  const frugal = navigator.connection?.saveData || matchMedia('(pointer: coarse)').matches;
+  if ('IntersectionObserver' in window && !frugal) {
     new IntersectionObserver(([e]) => {
       if (e.isIntersecting) v.play().catch(() => {}); else v.pause();
     }, { threshold: 0.5 }).observe(v);

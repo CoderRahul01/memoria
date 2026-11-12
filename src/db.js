@@ -97,6 +97,12 @@ async function initDB() {
       language TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ALTER TABLE recordings ADD COLUMN IF NOT EXISTS storage_key TEXT;
+    -- Cached AI output per person, reused until they record something new.
+    ALTER TABLE persons ADD COLUMN IF NOT EXISTS next_cache JSONB;
+    ALTER TABLE persons ADD COLUMN IF NOT EXISTS tribute_cache JSONB;
+    CREATE INDEX IF NOT EXISTS events_family_created ON events (family_id, created_at DESC);
+    ALTER TABLE recordings ALTER COLUMN audio DROP NOT NULL;
     CREATE TABLE IF NOT EXISTS credits (
       provider TEXT PRIMARY KEY,
       label TEXT NOT NULL,
@@ -192,6 +198,11 @@ const voiceMinutes = (familyId, personName) => one(
    WHERE r.family_id = $1 AND m.person_name = $2`, [familyId, personName]);
 const getFamilyMemories = familyId =>
   q('SELECT m.*, EXISTS (SELECT 1 FROM recordings r WHERE r.memory_id = m.id) AS has_voice FROM memories m WHERE m.family_id = $1 ORDER BY m.created_at DESC LIMIT 80', [familyId]);
+const familyVoiceMinutes = familyId => one('SELECT COALESCE(SUM(duration_s), 0) / 60.0 AS m FROM recordings WHERE family_id = $1', [familyId]).then(r => Number(r?.m || 0));
+const getCache = (familyId, name, col) => one(`SELECT ${col === 'next' ? 'next_cache' : 'tribute_cache'} AS c FROM persons WHERE family_id = $1 AND name = $2`, [familyId, name]).then(r => r?.c || null);
+const setCache = (familyId, name, col, value) => q(`UPDATE persons SET ${col === 'next' ? 'next_cache' : 'tribute_cache'} = $3 WHERE family_id = $1 AND name = $2`, [familyId, name, JSON.stringify(value)]).catch(() => {});
+// Housekeeping so the free database doesn't fill with page views: keep 45 days of views, 400 days of everything else.
+const pruneEvents = () => q(`DELETE FROM events WHERE (name IN ('view', 'app_opened', 'presence') AND created_at < now() - interval '45 days') OR created_at < now() - interval '400 days'`);
 const countMemories = familyId => one('SELECT COUNT(*)::int AS n FROM memories WHERE family_id = $1', [familyId]).then(r => r.n);
 
 function searchMemories(familyId, query, personName) {
@@ -239,7 +250,7 @@ module.exports = {
   pool, q, one, initDB,
   createFamily, familyByKey, familyById, touchFamily, renameFamily, markLifetime, revokeLifetime,
   getAllPersons, getPerson, savePerson, updatePersonVoiceId,
-  saveMemory, updateMemory, getMemory, getAllMemories, getFamilyMemories, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
+  saveMemory, updateMemory, getMemory, getAllMemories, getFamilyMemories, familyVoiceMinutes, getCache, setCache, pruneEvents, countMemories, voiceMinutes, searchMemories, deleteMemory, updateMemoryTTS,
   createInvite, inviteByToken, markInviteAnswered, recentInvites,
   heartbeat, logEvent, setCredit
 };

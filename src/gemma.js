@@ -10,6 +10,7 @@ const { configured } = require('./env');
 const gemini = require('./gemini');
 const openrouter = require('./openrouter');
 const credits = require('./credits');
+const quota = require('./quota');
 
 const TINKER_KEY = configured('TINKER_API_KEY');
 const TINKER_BASE = process.env.TINKER_BASE_URL || 'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1';
@@ -39,6 +40,8 @@ async function viaTinker(prompt, system) {
 
 /** Returns { text, engine } or null when no model is reachable. */
 async function generate(prompt, system, family = null, opts = {}) {
+  // Past the free plan's daily AI allowance, free families get the built-in engine (Lifetime never does).
+  if (!quota.allowModel(family)) return null;
   if (gemini.enabled()) {
     try {
       const out = await gemini.generate(prompt, system, opts);
@@ -154,7 +157,7 @@ Respond ONLY with valid JSON (no markdown):
   "sentiment": "warm | happy | nostalgic | bittersweet | serious"
 }`;
 
-  const out = await generate(prompt, null, family);
+  const out = await generate(prompt, null, family, { fast: true, json: true });
   if (out?.text) {
     const match = out.text.match(/\{[\s\S]*\}/);
     if (match) {
@@ -205,8 +208,11 @@ function verifyQuote(content, quote) {
   const q = qnorm(String(quote || '').replace(/…$/, ''));
   if (!q || q.split(' ').length < 2) return null;
   if (qnorm(content).includes(q)) {
+    // Show the whole sentence when it's about the quote's length; for long run-on transcripts
+    // (no punctuation), keep just the quoted words so the clip plays the moment, not the minute.
     const hit = sentencesOf(content).find(s => qnorm(s).includes(q));
-    return hit && hit.length <= 320 ? hit : String(quote).trim();
+    const ratio = hit ? qtokens(hit).length / q.split(' ').length : Infinity;
+    return hit && hit.length <= 320 && ratio <= 1.8 ? hit : String(quote).trim().replace(/…$/, '');
   }
   const want = qtokens(quote);
   let best = null, bestScore = 0;
@@ -297,7 +303,7 @@ They answered:
 
 Ask ONE short, warm follow-up question that a loving grandchild would ask next, about a specific person, place, feeling or detail they just mentioned. Ask it directly to ${personName} ("you"). Use the same language and script they answered in; if they spoke Hindi, write simple Hindi in Devanagari. Never ask about something they already explained.
 Reply with ONLY JSON: {"q": "the question"}`;
-  const out = await generate(prompt, null, family, { json: true });
+  const out = await generate(prompt, null, family, { json: true, fast: true });
   const q = String(parseJSON(out?.text)?.q || '').trim().slice(0, 200);
   return q || null;
 }
@@ -338,7 +344,7 @@ Suggest ${n} questions a grandchild could ask ${personName} next. Mix:
 Each question: one short, warm, simple sentence, asked directly to ${personName} ("you"). Write it in the language most of the stories are told in; if they are in Hindi, write simple Hindi in Devanagari.
 Never repeat a question that was already asked.
 Reply with ONLY JSON: {"questions": [{"q": "question", "why": "follow-up" or "gap"}]}`;
-  const out = await generate(prompt, null, family, { json: true });
+  const out = await generate(prompt, null, family, { json: true, fast: true });
   const parsed = out?.text ? parseJSON(out.text) : null;
   const qs = (parsed?.questions || [])
     .map(x => ({ q: String(x?.q || '').trim().slice(0, 200), why: x?.why === 'gap' ? 'gap' : 'follow-up' }))
@@ -350,7 +356,7 @@ Reply with ONLY JSON: {"questions": [{"q": "question", "why": "follow-up" or "ga
 async function generateLifeSummary(memories, personName = 'them', family = null) {
   if (!memories.length) return { summary: '', engine: 'none' };
   const list = memories.slice(0, 30).map(m => `- ${m.title}${m.memory_date ? ` (${m.memory_date})` : ''}: ${(m.content || '').slice(0, 200)}`).join('\n');
-  const out = await generate(`These are memories recorded by ${personName}:\n${list}\n\nWrite a warm, honest two-paragraph tribute (max 120 words) to ${personName} that draws only on these memories. No invented facts.`, null, family);
+  const out = await generate(`These are memories recorded by ${personName}:\n${list}\n\nWrite a warm, honest two-paragraph tribute (max 120 words) to ${personName} that draws only on these memories. No invented facts.`, null, family, { fast: true });
   if (out?.text) return { summary: out.text, engine: out.engine };
 
   const cats = {};

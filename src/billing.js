@@ -12,7 +12,9 @@ const WEBHOOK_SECRET = configured('DODO_WEBHOOK_SECRET');
 const PUBLIC_URL = process.env.PUBLIC_URL || 'https://memoria-family.vercel.app';
 
 const PRICE_LABEL = '$19';
-const FREE_LIMITS = { persons: 1, memories: 15 };
+// Free is generous; the paywall sits where our costs are (voice storage, transcription quality, AI volume).
+const FREE_LIMITS = { persons: 2, memories: 30, voice_minutes: 60, asks_per_day: 20, record_minutes: 10, keepsake: false };
+const LIFETIME_LIMITS = { persons: null, memories: null, voice_minutes: 1200, asks_per_day: 200, record_minutes: 30, keepsake: true };
 
 const enabled = () => !!(PRODUCT_ID && WEBHOOK_SECRET);
 
@@ -35,4 +37,4 @@ function verify(rawBody, headers) {
   });
 }
 
-module.exports = { enabled, checkoutUrl, verify, PRICE_LABEL, FREE_LIMITS, PRODUCT_ID };
+module.exports = { enabled, checkoutUrl, verify, PRICE_LABEL, FREE_LIMITS, LIFETIME_LIMITS, PRODUCT_ID };

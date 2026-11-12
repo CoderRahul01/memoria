@@ -5,6 +5,7 @@
  */
 const crypto = require('crypto');
 const db = require('./db');
+const storage = require('./storage');
 
 // Signing key: AUDIO_SIGNING_KEY if set, otherwise derived from the database secret (never sent to clients).
 const SIGNING_KEY = crypto.createHash('sha256')
@@ -38,13 +39,32 @@ function verifyListen(token) {
   return a.length === b.length && crypto.timingSafeEqual(a, b) ? id : null;
 }
 
-const save = (memoryId, familyId, { buffer, mime, duration, words, language }) => db.q(
-  `INSERT INTO recordings (memory_id, family_id, mime, audio, size_bytes, duration_s, words, language)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-   ON CONFLICT (memory_id) DO NOTHING`,
-  [memoryId, familyId, mime, buffer, buffer.length, duration || null, JSON.stringify(words || []), language || null]);
+/** Keeps the recording in object storage when configured, otherwise in Postgres. Never drops it. */
+async function save(memoryId, familyId, { buffer, mime, duration, words, language }) {
+  let key = null;
+  if (storage.enabled()) {
+    try {
+      key = storage.keyFor(familyId, memoryId, mime);
+      await storage.put(key, buffer, mime);
+    } catch (e) {
+      console.warn('Object storage failed, keeping the recording in Postgres:', e.message);
+      key = null;
+    }
+  }
+  return db.q(
+    `INSERT INTO recordings (memory_id, family_id, mime, audio, size_bytes, duration_s, words, language, storage_key)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (memory_id) DO NOTHING`,
+    [memoryId, familyId, mime, key ? null : buffer, buffer.length, duration || null, JSON.stringify(words || []), language || null, key]);
+}
 
-const getAudio = memoryId => db.one('SELECT mime, audio, size_bytes FROM recordings WHERE memory_id = $1', [memoryId]);
+// Metadata only: the audio bytes are never loaded just to answer a request.
+const getMeta = memoryId => db.one(
+  'SELECT mime, size_bytes, storage_key, octet_length(audio) AS len FROM recordings WHERE memory_id = $1', [memoryId]);
+// Postgres-stored audio is read slice by slice, so seeking doesn't pull the whole file into memory.
+const getRange = (memoryId, start, length) => db.one(
+  'SELECT substring(audio FROM $2 FOR $3) AS chunk FROM recordings WHERE memory_id = $1', [memoryId, start + 1, length]).then(r => r?.chunk);
+const storageKeyOf = memoryId => db.one('SELECT storage_key FROM recordings WHERE memory_id = $1', [memoryId]).then(r => r?.storage_key || null);
 const getWords = memoryIds => memoryIds.length
   ? db.q('SELECT memory_id, words, duration_s FROM recordings WHERE memory_id = ANY($1::uuid[])', [memoryIds])
   : Promise.resolve([]);
@@ -75,4 +95,4 @@ function clipFor(words, quote) {
   return { start: Math.max(0, spoken[a].start - 0.25), end: spoken[b].end + 0.4 };
 }
 
-module.exports = { signedUrl, verify, listenToken, verifyListen, save, getAudio, getWords, clipFor };
+module.exports = { signedUrl, verify, listenToken, verifyListen, save, getMeta, getRange, storageKeyOf, getWords, clipFor };

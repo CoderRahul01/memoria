@@ -14,10 +14,13 @@ const crypto = require('crypto');
 const db = require('./db');
 const gemma = require('./gemma');
 const elevenlabs = require('./elevenlabs');
+const stt = require('./stt');
+const storage = require('./storage');
 const openrouter = require('./openrouter');
 const billing = require('./billing');
 const credits = require('./credits');
 const recordings = require('./recordings');
+const quota = require('./quota');
 const { configured } = require('./env');
 
 const app = express();
@@ -59,7 +62,7 @@ function limit(bucket, max, windowMs) {
   };
 }
 setInterval(() => { const now = Date.now(); for (const [k, h] of hits) if (now > h.reset) hits.delete(k); }, 60_000).unref();
-app.use('/api', limit('api', 300, 60_000));
+app.use('/api', limit('api', Number(process.env.API_RATE_PER_MIN) || 300, 60_000)); // per IP
 app.post('/api/family', limit('family', 12, 3_600_000));
 app.use('/api/invite', limit('invite', 40, 600_000));
 app.use('/api/listen', limit('listen', 60, 60_000));
@@ -131,9 +134,7 @@ async function requireFamily(req, res, next) {
   } catch (e) { next(e); }
 }
 
-const limitsFor = family => family.plan === 'lifetime'
-  ? { persons: null, memories: null, record_minutes: 30, keepsake: true }
-  : { ...billing.FREE_LIMITS, record_minutes: 10, keepsake: false };
+const limitsFor = family => family.plan === 'lifetime' ? billing.LIFETIME_LIMITS : billing.FREE_LIMITS;
 
 const publicFamily = (f, counts = {}) => ({
   id: f.id.slice(0, 8), owner_name: f.owner_name, plan: f.plan, created_at: f.created_at,
@@ -144,12 +145,7 @@ const publicFamily = (f, counts = {}) => ({
 // Simple guard so one family can't burn through AI credits.
 const aiUse = new Map();
 function aiBudget(family) {
-  const hour = Math.floor(Date.now() / 3_600_000);
-  const k = `${family.id}:${hour}`;
-  const n = (aiUse.get(k) || 0) + 1;
-  aiUse.set(k, n);
-  if (aiUse.size > 5000) aiUse.clear();
-  if (n > (family.plan === 'lifetime' ? 300 : 60)) throw httpError(429, 'That’s a lot in one hour. Take a short break and try again soon.');
+  if (!quota.allowAction(family, family.plan === 'lifetime' ? 300 : 60)) throw httpError(429, 'That’s a lot in one hour. Take a short break and try again soon.');
 }
 
 app.post('/api/family', wrap(async (req, res) => {
@@ -172,8 +168,8 @@ app.use('/api', (req, res, next) => {
 });
 
 app.get('/api/family', wrap(async (req, res) => {
-  const [memory_count, persons] = await Promise.all([db.countMemories(req.family.id), db.getAllPersons(req.family.id)]);
-  res.json(publicFamily(req.family, { memory_count, person_count: persons.length }));
+  const [memory_count, persons, voice_minutes] = await Promise.all([db.countMemories(req.family.id), db.getAllPersons(req.family.id), db.familyVoiceMinutes(req.family.id)]);
+  res.json(publicFamily(req.family, { memory_count, person_count: persons.length, voice_minutes: Math.round(voice_minutes * 10) / 10 }));
 }));
 
 app.patch('/api/family', wrap(async (req, res) => {
@@ -226,7 +222,9 @@ app.get('/api/health', wrap(async (req, res) => {
   res.json({
     status: 'ok',
     ai: await gemma.checkHealth(),
-    transcription: elevenlabs.enabled(),
+    storage: storage.enabled() ? 'object' : 'postgres',
+    quota: quota.status(),
+    transcription: stt.enabled(),
     payments: billing.enabled()
   });
 }));
@@ -244,7 +242,7 @@ app.post('/api/persons', wrap(async (req, res) => {
   const lim = limitsFor(req.family);
   const count = (await db.getAllPersons(req.family.id)).length;
   if (lim.persons && count >= lim.persons) {
-    throw httpError(402, 'The free plan keeps one person’s stories. Unlock Lifetime to add everyone in the family.', { code: 'limit' });
+    throw httpError(402, `The free plan keeps ${lim.persons} people’s stories. Lifetime adds everyone in the family.`, { code: 'limit' });
   }
   const person = await db.savePerson(req.family.id, { name, relationship: req.body.relationship?.trim()?.slice(0, 40) });
   db.logEvent(req.family.id, 'person_added', { relationship: person.relationship });
@@ -267,7 +265,9 @@ app.get('/api/memories/:id', wrap(async (req, res) => {
 app.delete('/api/memories/:id', wrap(async (req, res) => {
   const memory = await db.getMemory(req.family.id, req.params.id);
   if (!memory) throw httpError(404, 'Memory not found');
+  const key = memory.has_voice ? await recordings.storageKeyOf(memory.id) : null;
   await db.deleteMemory(req.family.id, req.params.id);
+  if (key) storage.remove(key).catch(e => console.warn('storage delete:', e.message)); // the audio goes with the story
   if (memory.tts_url) fs.unlink(path.join(__dirname, '../public', memory.tts_url), () => {});
   db.logEvent(req.family.id, 'memory_deleted', {});
   res.json({ success: true });
@@ -307,6 +307,11 @@ async function keepRecording(family, file, body, { person_name, asked = null, vi
   const buffer = fs.readFileSync(file.path);
   // Length: the browser reports it; otherwise estimate from size (~32 kbps Opus).
   const seconds = Math.max(1, Number(body.duration) || buffer.length / 4000);
+  if (!fromElder && lim.voice_minutes && (await db.familyVoiceMinutes(family.id)) + seconds / 60 > lim.voice_minutes) {
+    throw httpError(402, family.plan === 'lifetime'
+      ? 'You’ve kept 20 hours of voice. Write to us and we’ll raise it, free.'
+      : `You’ve kept ${lim.voice_minutes} minutes of real voice on the free plan. Lifetime keeps up to 20 hours.`, { code: 'limit' });
+  }
   if (seconds > lim.record_minutes * 60 + 15) {
     throw httpError(413, family.plan === 'lifetime'
       ? 'That recording is over 30 minutes. Please split it into shorter stories.'
@@ -315,17 +320,9 @@ async function keepRecording(family, file, body, { person_name, asked = null, vi
   const minutes = seconds / 60;
   const typed = body.transcription?.trim();
   const edited = body.edited === 'true';
-  let heard = null;
   const t0 = Date.now();
-  if (elevenlabs.enabled()) {
-    if (await credits.allow('stt_minutes', minutes, family)) {
-      heard = await elevenlabs.transcribe(buffer, file.mimetype, file.originalname).catch(e => (console.warn('STT:', e.message), null));
-      if (heard) credits.record(family.id, 'stt_minutes', minutes);
-      db.logEvent(family.id, 'transcribed', { minutes: Math.round(minutes * 10) / 10, language: heard?.language, via }, Date.now() - t0, !!heard);
-    } else {
-      db.logEvent(family.id, 'credit_fallback', { kind: 'stt_minutes' });
-    }
-  }
+  const heard = await stt.transcribe(buffer, file.mimetype || 'audio/webm', file.originalname || 'memory.webm', { seconds, family });
+  db.logEvent(family.id, 'transcribed', { minutes: Math.round(minutes * 10) / 10, language: heard?.language, engine: heard?.engine || 'none', via }, Date.now() - t0, !!heard);
   let content = (edited && typed) || heard?.text || typed;
   if (!content) {
     if (!fromElder) throw httpError(422, 'We couldn’t write out that recording right now. Please type what was said in the box, then keep it.');
@@ -336,7 +333,8 @@ async function keepRecording(family, file, body, { person_name, asked = null, vi
 
   const mb = buffer.length / 1048576;
   let kept = false;
-  if (fromElder || await credits.allow('storage_mb', mb, family)) {
+  // With object storage the database isn't the limit, so a recording is always kept.
+  if (fromElder || storage.enabled() || await credits.allow('storage_mb', mb, family)) {
     await recordings.save(memory.id, family.id, {
       buffer, mime: file.mimetype || 'audio/webm', duration: seconds, words: heard?.words, language: heard?.language
     });
@@ -363,9 +361,13 @@ app.post('/api/next-questions', wrap(async (req, res) => {
   const person_name = String(req.body.person_name || '').slice(0, 40);
   if (!person_name) throw httpError(400, 'Choose whose stories to look at.');
   const memories = await db.getAllMemories(req.family.id, person_name);
+  // Same stories, same suggestions: reuse them until something new is recorded.
+  const cached = await db.getCache(req.family.id, person_name, 'next');
+  if (cached?.count === memories.length && cached.questions?.length && !req.body.fresh) return res.json({ questions: cached.questions, engine: 'cache' });
   if (memories.length) aiBudget(req.family);
   const t0 = Date.now();
   const r = await gemma.nextQuestions(memories, person_name, req.family, 3);
+  if (r.engine !== 'heuristic') db.setCache(req.family.id, person_name, 'next', { count: memories.length, questions: r.questions });
   db.logEvent(req.family.id, 'next_questions', { engine: r.engine, n: r.questions.length }, Date.now() - t0);
   res.json(r);
 }));
@@ -437,6 +439,12 @@ app.post('/api/chat', wrap(async (req, res) => {
   if (!question?.trim()) throw httpError(400, 'Ask a question first.');
   if (!person_name && !everyone) throw httpError(400, 'Choose whose stories to ask about.');
   aiBudget(req.family);
+  const perDay = limitsFor(req.family).asks_per_day;
+  if (!quota.allowAsk(req.family, perDay)) {
+    throw httpError(req.family.plan === 'lifetime' ? 429 : 402, req.family.plan === 'lifetime'
+      ? 'That’s all the questions for today. Come back tomorrow.'
+      : `That’s today’s ${perDay} free questions. Lifetime asks up to 200 a day.`, { code: 'limit' });
+  }
 
   const q = question.trim().slice(0, 400);
   const memories = everyone ? await db.getFamilyMemories(req.family.id) : await db.getAllMemories(req.family.id, person_name);
@@ -474,9 +482,12 @@ app.get('/api/persons/:name/voice', wrap(async (req, res) => {
 // ── LIFE STORY ─────────────────────────────────────────────────
 app.get('/api/summary/:person_name', wrap(async (req, res) => {
   const memories = await db.getAllMemories(req.family.id, req.params.person_name);
+  const cached = await db.getCache(req.family.id, req.params.person_name, 'tribute');
+  if (cached?.count === memories.length && cached.summary && req.query.fresh !== '1') return res.json({ summary: cached.summary, memory_count: memories.length });
   if (memories.length) aiBudget(req.family);
   const t0 = Date.now();
   const { summary, engine } = await gemma.generateLifeSummary(memories, req.params.person_name, req.family);
+  if (memories.length && engine !== 'heuristic') db.setCache(req.family.id, req.params.person_name, 'tribute', { count: memories.length, summary });
   if (memories.length) db.logEvent(req.family.id, 'tribute', { engine }, Date.now() - t0);
   res.json({ summary, memory_count: memories.length });
 }));
@@ -494,9 +505,15 @@ app.get('/api/export/:person_name', wrap(async (req, res) => {
 app.get('/api/audio/:id', wrap(async (req, res) => {
   const { id } = req.params;
   if (!recordings.verify(id, req.query.exp, req.query.sig)) return res.status(403).json({ error: 'This link has expired. Open the story again.' });
-  const rec = await recordings.getAudio(id);
+  const rec = await recordings.getMeta(id);
   if (!rec) return res.status(404).end();
-  const total = rec.audio.length;
+  // In object storage: hand the browser a presigned URL that expires in minutes (it streams and seeks directly).
+  if (rec.storage_key) {
+    res.set('Cache-Control', 'private, no-store');
+    return res.redirect(302, await storage.signedGet(rec.storage_key, 900));
+  }
+  const total = Number(rec.len) || 0;
+  if (!total) return res.status(404).end();
   res.set({ 'Content-Type': rec.mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'Content-Disposition': 'inline' });
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
   if (range) {
@@ -505,9 +522,9 @@ app.get('/api/audio/:id', wrap(async (req, res) => {
     if (start < 0 || start >= total || end < start) return res.status(416).set('Content-Range', `bytes */${total}`).end();
     end = Math.min(end, total - 1);
     res.status(206).set({ 'Content-Range': `bytes ${start}-${end}/${total}`, 'Content-Length': end - start + 1 });
-    return res.end(rec.audio.subarray(start, end + 1));
+    return res.end(await recordings.getRange(id, start, end - start + 1));
   }
-  res.set('Content-Length', total).end(rec.audio);
+  res.set('Content-Length', total).end(await recordings.getRange(id, 0, total));
 }));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
@@ -517,6 +534,9 @@ db.initDB().then(async () => {
     if (openrouter.enabled()) await openrouter.discoverModel();
     const ai = await gemma.checkHealth();
     credits.start();
+    // Daily housekeeping: drop old page-view events so the free database stays small.
+    const prune = () => db.pruneEvents().then(r => r?.length, () => null);
+    setTimeout(prune, 60_000).unref(); setInterval(prune, 24 * 3_600_000).unref();
     console.log(`\n🧠 Memoria running at http://localhost:${PORT}`);
     console.log(`🤖 AI engine: ${ai.engine}`);
     console.log(`🎙️  Transcription: ${elevenlabs.enabled() ? 'ElevenLabs Scribe' : 'browser only'}`);
