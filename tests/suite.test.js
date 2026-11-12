@@ -127,8 +127,11 @@ describe('Environment & Billing Guards', () => {
   });
 
   it('defines valid free plan limits', () => {
-    assert.strictEqual(billing.FREE_LIMITS.persons, 1, 'Free tier is limited to 1 loved one');
-    assert.strictEqual(billing.FREE_LIMITS.memories, 15, 'Free tier is limited to 15 memories');
+    assert.strictEqual(billing.FREE_LIMITS.persons, 2, 'Free keeps two loved ones, so family Ask works for free');
+    assert.strictEqual(billing.FREE_LIMITS.memories, 30);
+    assert.strictEqual(billing.FREE_LIMITS.voice_minutes, 60, 'Free voice storage is capped (our biggest cost)');
+    assert.ok(billing.LIFETIME_LIMITS.voice_minutes > billing.FREE_LIMITS.voice_minutes);
+    assert.ok(billing.LIFETIME_LIMITS.asks_per_day > billing.FREE_LIMITS.asks_per_day);
   });
 });
 
